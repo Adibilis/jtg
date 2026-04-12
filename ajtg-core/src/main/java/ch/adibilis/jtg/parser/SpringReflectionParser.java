@@ -2,8 +2,13 @@ package ch.adibilis.jtg.parser;
 
 import ch.adibilis.jtg.config.GeneratorConfig;
 import ch.adibilis.jtg.model.endpoints.Endpoint;
+import ch.adibilis.jtg.model.endpoints.HttpMethod;
+import ch.adibilis.jtg.model.endpoints.PagedEndpoint;
 import ch.adibilis.jtg.model.types.*;
 import ch.adibilis.jtg.model.types.EnumType;
+import ch.adibilis.jtg.pagination.PageParam;
+import ch.adibilis.jtg.pagination.PageSizeParam;
+import ch.adibilis.jtg.pagination.PagedQuery;
 import ch.adibilis.jtg.validation.Validation;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -14,8 +19,11 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.fasterxml.jackson.databind.PropertyNamingStrategy;
 import com.fasterxml.jackson.databind.annotation.JsonNaming;
 
+import org.springframework.web.bind.annotation.*;
+
 import java.lang.annotation.Annotation;
 import java.lang.reflect.GenericArrayType;
+import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.TypeVariable;
@@ -407,11 +415,172 @@ public class SpringReflectionParser {
         return "common";
     }
 
-    // --- Endpoint parsing (implemented in Task 5) ---
+    // --- Endpoint parsing ---
 
     public List<Endpoint> parseController(Class<?> controllerClass) {
-        // Stub -- will be implemented in Task 5
-        throw new UnsupportedOperationException("Implemented in Task 5");
+        List<Endpoint> endpoints = new ArrayList<>();
+        String classPrefix = "";
+
+        RequestMapping classMapping = controllerClass.getAnnotation(RequestMapping.class);
+        if (classMapping != null && classMapping.value().length > 0) {
+            classPrefix = classMapping.value()[0];
+        }
+
+        String className = controllerClass.getSimpleName();
+
+        for (Method method : controllerClass.getDeclaredMethods()) {
+            if (Modifier.isStatic(method.getModifiers())) continue;
+
+            HttpMethod httpMethod = null;
+            String[] paths = {};
+
+            GetMapping get = method.getAnnotation(GetMapping.class);
+            PostMapping post = method.getAnnotation(PostMapping.class);
+            PutMapping put = method.getAnnotation(PutMapping.class);
+            PatchMapping patch = method.getAnnotation(PatchMapping.class);
+            DeleteMapping delete = method.getAnnotation(DeleteMapping.class);
+
+            if (get != null) { httpMethod = HttpMethod.GET; paths = get.value(); }
+            else if (post != null) { httpMethod = HttpMethod.POST; paths = post.value(); }
+            else if (put != null) { httpMethod = HttpMethod.PUT; paths = put.value(); }
+            else if (patch != null) { httpMethod = HttpMethod.PATCH; paths = patch.value(); }
+            else if (delete != null) { httpMethod = HttpMethod.DELETE; paths = delete.value(); }
+            else { continue; }
+
+            if (paths.length == 0) paths = new String[]{""};
+
+            boolean isPaged = method.isAnnotationPresent(PagedQuery.class);
+
+            for (String path : paths) {
+                String fullUrl = classPrefix + path;
+
+                Endpoint endpoint;
+                if (isPaged) {
+                    endpoint = new PagedEndpoint();
+                } else {
+                    endpoint = new Endpoint();
+                }
+                endpoint.setClassName(className);
+                endpoint.setMethodName(method.getName());
+                endpoint.setHttpMethod(httpMethod);
+                endpoint.setUrl(fullUrl);
+
+                // Return type
+                java.lang.reflect.Type returnType = method.getGenericReturnType();
+                endpoint.setReturnType(resolveReturnType(returnType));
+
+                // Parameters
+                parseParameters(method, endpoint);
+
+                endpoints.add(endpoint);
+            }
+        }
+
+        return endpoints;
+    }
+
+    private Type resolveReturnType(java.lang.reflect.Type returnType) {
+        if (returnType instanceof ParameterizedType pt) {
+            Class<?> raw = (Class<?>) pt.getRawType();
+            String rawName = raw.getName();
+
+            // Unwrap ResponseEntity
+            if (RESPONSE_ENTITY_TYPES.contains(rawName)) {
+                java.lang.reflect.Type[] args = pt.getActualTypeArguments();
+                if (args[0] == Void.class) return PrimitiveType.Void;
+                return resolveReturnType(args[0]);
+            }
+            // Unwrap Mono
+            if (rawName.equals("reactor.core.publisher.Mono")) {
+                return resolveReturnType(pt.getActualTypeArguments()[0]);
+            }
+            // Flux -> ArrayType
+            if (rawName.equals("reactor.core.publisher.Flux")) {
+                return new ArrayType(resolveType(pt.getActualTypeArguments()[0]));
+            }
+        }
+
+        if (returnType instanceof Class<?> clazz) {
+            // Raw ResponseEntity
+            if (RESPONSE_ENTITY_TYPES.contains(clazz.getName())) {
+                return PrimitiveType.Void;
+            }
+        }
+
+        return resolveType(returnType);
+    }
+
+    private void parseParameters(Method method, Endpoint endpoint) {
+        java.lang.reflect.Parameter[] params = method.getParameters();
+        java.lang.reflect.Type[] genericTypes = method.getGenericParameterTypes();
+        Annotation[][] paramAnnotations = method.getParameterAnnotations();
+        boolean isPaged = endpoint instanceof PagedEndpoint;
+
+        for (int i = 0; i < params.length; i++) {
+            java.lang.reflect.Parameter param = params[i];
+            Class<?> paramClass = param.getType();
+
+            if (isIgnoredParamType(paramClass)) continue;
+
+            String paramName = param.getName();
+            Annotation[] annotations = paramAnnotations[i];
+
+            boolean isPageParam = false;
+            boolean isPageSizeParam = false;
+
+            for (Annotation ann : annotations) {
+                if (ann instanceof PageParam) isPageParam = true;
+                if (ann instanceof PageSizeParam) isPageSizeParam = true;
+            }
+
+            boolean handled = false;
+            for (Annotation ann : annotations) {
+                if (ann instanceof RequestPart) {
+                    endpoint.getFileParams().add(new Field(paramName, PrimitiveType.File));
+                    handled = true;
+                    break;
+                } else if (ann instanceof PathVariable) {
+                    endpoint.getUrlArgs().add(new Field(paramName, resolveType(genericTypes[i])));
+                    handled = true;
+                    break;
+                } else if (ann instanceof RequestBody) {
+                    endpoint.setBody(resolveType(genericTypes[i]));
+                    handled = true;
+                    break;
+                } else if (ann instanceof RequestParam rp) {
+                    Type resolvedType = resolveType(genericTypes[i]);
+                    if (resolvedType == PrimitiveType.File) {
+                        endpoint.getFileParams().add(new Field(paramName, PrimitiveType.File));
+                    } else if (isPaged && isPageParam) {
+                        ((PagedEndpoint) endpoint).setPageVariable(paramName);
+                    } else if (isPaged && isPageSizeParam) {
+                        ((PagedEndpoint) endpoint).setPageSizeVariable(paramName);
+                    } else {
+                        boolean required = rp.required();
+                        endpoint.getParams().add(new Field(paramName, resolvedType, required));
+                    }
+                    handled = true;
+                    break;
+                }
+            }
+
+            // No mapping annotation → treat as query param
+            if (!handled && !hasAnyMappingAnnotation(annotations)) {
+                Type resolvedType = resolveType(genericTypes[i]);
+                endpoint.getParams().add(new Field(paramName, resolvedType, true));
+            }
+        }
+    }
+
+    private boolean hasAnyMappingAnnotation(Annotation[] annotations) {
+        for (Annotation ann : annotations) {
+            if (ann instanceof RequestParam || ann instanceof PathVariable ||
+                ann instanceof RequestBody || ann instanceof RequestPart ||
+                ann instanceof PageParam || ann instanceof PageSizeParam) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // --- Utility ---
