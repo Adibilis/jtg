@@ -82,6 +82,13 @@ public class SpringReflectionParser {
             "org.springframework.web.server.WebSession"
     );
 
+    private static final Set<String> IGNORED_PARAM_ANNOTATIONS = Set.of(
+            "org.springframework.web.bind.annotation.RequestAttribute",
+            "org.springframework.security.core.annotation.AuthenticationPrincipal",
+            "org.springframework.web.bind.annotation.ModelAttribute",
+            "org.springframework.web.bind.annotation.SessionAttribute"
+    );
+
     private static final String MULTIPART_FILE = "org.springframework.web.multipart.MultipartFile";
 
     public SpringReflectionParser(GeneratorConfig config) {
@@ -525,6 +532,8 @@ public class SpringReflectionParser {
             String paramName = param.getName();
             Annotation[] annotations = paramAnnotations[i];
 
+            if (hasIgnoredAnnotation(annotations)) continue;
+
             boolean isPageParam = false;
             boolean isPageSizeParam = false;
 
@@ -587,5 +596,14 @@ public class SpringReflectionParser {
 
     static boolean isIgnoredParamType(Class<?> type) {
         return IGNORED_PARAM_TYPES.contains(type.getName());
+    }
+
+    private static boolean hasIgnoredAnnotation(Annotation[] annotations) {
+        for (Annotation ann : annotations) {
+            if (IGNORED_PARAM_ANNOTATIONS.contains(ann.annotationType().getName())) {
+                return true;
+            }
+        }
+        return false;
     }
 }

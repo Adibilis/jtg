@@ -13,20 +13,24 @@ public class TypeScriptTypeWriter {
     public List<TypeScriptFile> generateTypes(Map<String, Type> namedTypes, GeneratorConfig config) {
         // Build a map of type name -> TypeScriptFile for import resolution
         Map<String, TypeScriptFile> fileMap = new LinkedHashMap<>();
+        Map<String, Type> simpleNameToType = new LinkedHashMap<>();
         List<TypeScriptFile> files = new ArrayList<>();
 
         for (Map.Entry<String, Type> entry : namedTypes.entrySet()) {
             Type type = entry.getValue();
             List<TypeScriptFile> generated = generateType(type, config, namedTypes);
             for (TypeScriptFile file : generated) {
-                fileMap.put(extractTypeName(file.getRelativePath()), file);
+                String simpleName = extractTypeName(file.getRelativePath());
+                fileMap.put(simpleName, file);
+                simpleNameToType.put(simpleName, type);
                 files.add(file);
             }
         }
 
-        // Resolve imports
+        // Resolve imports and render them into the body
         for (TypeScriptFile file : files) {
-            resolveImports(file, fileMap, namedTypes, config);
+            resolveImports(file, fileMap, simpleNameToType, config);
+            renderImportsIntoBody(file);
         }
 
         return files;
@@ -42,13 +46,13 @@ public class TypeScriptTypeWriter {
     }
 
     private TypeScriptFile generateObjectType(ObjectType obj, GeneratorConfig config) {
-        TypeScriptFile file = new TypeScriptFile("types/" + obj.getPackageSegment() + "/" + obj.getName() + ".ts");
+        TypeScriptFile file = new TypeScriptFile("types/" + obj.getName() + ".ts");
 
         StringBuilder body = new StringBuilder();
         body.append(header(config)).append("\n");
 
         // Interface declaration
-        body.append("\nexport interface ").append(obj.getName());
+        body.append("\nexport default interface ").append(obj.getName());
         if (!obj.getGenericParams().isEmpty()) {
             body.append("<").append(String.join(", ", obj.getGenericParams())).append(">");
         }
@@ -67,21 +71,24 @@ public class TypeScriptTypeWriter {
     }
 
     private TypeScriptFile generateEnumType(EnumType e, GeneratorConfig config) {
-        TypeScriptFile file = new TypeScriptFile("types/" + e.packageSegment() + "/" + e.name() + ".ts");
+        TypeScriptFile file = new TypeScriptFile("types/" + e.name() + ".ts");
 
         StringBuilder body = new StringBuilder();
         body.append(header(config)).append("\n\n");
 
-        String values = e.values().stream().map(v -> "'" + v + "'").collect(Collectors.joining(", "));
-        body.append("export const ").append(e.name()).append("Values = [").append(values).append("] as const;\n");
-        body.append("export type ").append(e.name()).append(" = typeof ").append(e.name()).append("Values[number];\n");
+        String values = e.values().stream().map(v -> "'" + v + "'").collect(Collectors.joining(" | "));
+        String valuesArray = e.values().stream().map(v -> "'" + v + "'").collect(Collectors.joining(", "));
+        String valuesName = Character.toLowerCase(e.name().charAt(0)) + e.name().substring(1) + "Values";
+        body.append("type ").append(e.name()).append(" = ").append(values).append(";\n");
+        body.append("export const ").append(valuesName).append(": ").append(e.name()).append("[] = [").append(valuesArray).append("];\n");
+        body.append("export default ").append(e.name()).append(";\n");
 
         file.setBody(body.toString());
         return file;
     }
 
     private TypeScriptFile generateUnionType(UnionType u, GeneratorConfig config) {
-        TypeScriptFile file = new TypeScriptFile("types/" + u.packageSegment() + "/" + u.name() + ".ts");
+        TypeScriptFile file = new TypeScriptFile("types/" + u.name() + ".ts");
 
         StringBuilder body = new StringBuilder();
         body.append(header(config)).append("\n\n");
@@ -94,9 +101,10 @@ public class TypeScriptTypeWriter {
     }
 
     private void resolveImports(TypeScriptFile file, Map<String, TypeScriptFile> fileMap,
-                                 Map<String, Type> namedTypes, GeneratorConfig config) {
+                                 Map<String, Type> simpleNameToType, GeneratorConfig config) {
         String fileName = extractTypeName(file.getRelativePath());
-        Type fileType = namedTypes.get(fileName);
+        Type fileType = simpleNameToType.get(fileName);
+        if (fileType == null) return;
 
         for (Map.Entry<String, TypeScriptFile> entry : fileMap.entrySet()) {
             String typeName = entry.getKey();
@@ -105,7 +113,7 @@ public class TypeScriptTypeWriter {
 
             if (bodyReferencesType(fileType, typeName)) {
                 String importPath = file.resolveImportPath(targetFile);
-                file.getImports().add(new TypeScriptFile.Import(importPath, Set.of(typeName)));
+                file.getImports().add(new TypeScriptFile.Import(importPath, typeName));
             }
         }
     }
@@ -131,6 +139,28 @@ public class TypeScriptTypeWriter {
             case EnumType e -> e.name().equals(typeName);
             default -> false;
         };
+    }
+
+    private void renderImportsIntoBody(TypeScriptFile file) {
+        if (file.getImports().isEmpty()) return;
+
+        StringBuilder importBlock = new StringBuilder();
+        for (TypeScriptFile.Import imp : file.getImports()) {
+            if (imp.defaultImport() != null && !imp.defaultImport().isEmpty()) {
+                importBlock.append("import ").append(imp.defaultImport())
+                        .append(" from '").append(imp.path()).append("';\n");
+            } else if (imp.namedImports() != null && !imp.namedImports().isEmpty()) {
+                importBlock.append("import { ").append(String.join(", ", imp.namedImports()))
+                        .append(" } from '").append(imp.path()).append("';\n");
+            }
+        }
+
+        // Insert imports after the header line
+        String body = file.getBody();
+        int headerEnd = body.indexOf('\n');
+        if (headerEnd >= 0) {
+            file.setBody(body.substring(0, headerEnd + 1) + importBlock + body.substring(headerEnd + 1));
+        }
     }
 
     private String extractTypeName(String relativePath) {

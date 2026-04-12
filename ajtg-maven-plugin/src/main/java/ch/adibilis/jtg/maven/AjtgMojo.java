@@ -9,10 +9,15 @@ import ch.adibilis.jtg.writer.TypeScriptFile;
 import ch.adibilis.jtg.writer.TypeScriptTypeWriter;
 import ch.adibilis.jtg.writer.Writer;
 
+import org.apache.maven.artifact.Artifact;
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugins.annotations.*;
+import org.apache.maven.project.DefaultProjectBuildingRequest;
 import org.apache.maven.project.MavenProject;
+import org.apache.maven.project.ProjectBuilder;
+import org.apache.maven.project.ProjectBuildingRequest;
+import org.apache.maven.project.ProjectBuildingResult;
 
 import java.io.File;
 import java.net.URL;
@@ -26,6 +31,12 @@ public class AjtgMojo extends AbstractMojo {
 
     @Parameter(defaultValue = "${project}", readonly = true, required = true)
     private MavenProject project;
+
+    @Parameter(defaultValue = "${session}", readonly = true, required = true)
+    private org.apache.maven.execution.MavenSession session;
+
+    @Component
+    private ProjectBuilder projectBuilder;
 
     @Parameter(required = true)
     private List<String> basePackages;
@@ -154,13 +165,23 @@ public class AjtgMojo extends AbstractMojo {
                 urls.add(new File(element).toURI().toURL());
             }
 
-            // Sub-modules
+            // Sub-modules: resolve their full dependency classpath
             if (subModules != null) {
                 for (String subModule : subModules) {
-                    Path subModulePath = Path.of(project.getBasedir().getParent(), subModule,
-                            "target", "classes");
+                    // Add compiled classes
+                    Path subModulePath = project.getBasedir().toPath()
+                            .resolve(subModule).resolve("target").resolve("classes");
                     if (Files.exists(subModulePath)) {
                         urls.add(subModulePath.toUri().toURL());
+                    }
+                    // Resolve and add all dependency JARs
+                    MavenProject subProject = findAndResolveSubModule(subModule);
+                    if (subProject != null) {
+                        for (Artifact artifact : subProject.getArtifacts()) {
+                            if (artifact.getFile() != null) {
+                                urls.add(artifact.getFile().toURI().toURL());
+                            }
+                        }
                     }
                 }
             }
@@ -168,6 +189,25 @@ public class AjtgMojo extends AbstractMojo {
             return new URLClassLoader(urls.toArray(new URL[0]), getClass().getClassLoader());
         } catch (Exception e) {
             throw new MojoExecutionException("Failed to build classloader", e);
+        }
+    }
+
+    private MavenProject findAndResolveSubModule(String subModule) throws MojoExecutionException {
+        Path subModulePom = project.getBasedir().toPath().resolve(subModule).resolve("pom.xml");
+        if (!Files.exists(subModulePom)) {
+            getLog().warn("Submodule pom not found: " + subModulePom);
+            return null;
+        }
+        try {
+            ProjectBuildingRequest request = new DefaultProjectBuildingRequest(session.getProjectBuildingRequest());
+            request.setResolveDependencies(true);
+            ProjectBuildingResult result = projectBuilder.build(subModulePom.toFile(), request);
+            MavenProject subProject = result.getProject();
+            getLog().info("Resolved submodule " + subModule + " with " +
+                    subProject.getArtifacts().size() + " dependencies");
+            return subProject;
+        } catch (Exception e) {
+            throw new MojoExecutionException("Failed to resolve submodule " + subModule, e);
         }
     }
 

@@ -81,7 +81,7 @@ class ZodTypeWriterTest {
                 .findFirst().orElseThrow();
 
         // Should be a plain interface, not a Zod schema
-        assertThat(file.getBody()).contains("export interface PlainDto {");
+        assertThat(file.getBody()).contains("export default interface PlainDto {");
         assertThat(file.getBody()).doesNotContain("z.object");
     }
 

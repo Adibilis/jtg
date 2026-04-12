@@ -15,7 +15,7 @@ public final class TypeScriptTypeMapper {
             case ArrayType a -> map(a.subType(), config) + "[]";
             case MapType m -> "Record<" + map(m.keyType(), config) + ", " + map(m.valueType(), config) + ">";
             case OptionalType o -> map(o.subType(), config) + " | null";
-            case EnumType e -> e.values().stream().map(v -> "'" + v + "'").collect(Collectors.joining(" | "));
+            case EnumType e -> e.name();
             case UnionType u -> u.variants().stream().map(ObjectType::getName).collect(Collectors.joining(" | "));
             case ObjectType o -> mapObject(o, config);
             case LiteralType l -> "'" + l.value() + "'";

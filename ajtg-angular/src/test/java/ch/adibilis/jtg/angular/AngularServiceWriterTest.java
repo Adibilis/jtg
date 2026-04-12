@@ -51,7 +51,7 @@ class AngularServiceWriterTest {
 
         assertThat(files).hasSize(1);
         TypeScriptFile file = files.get(0);
-        assertThat(file.getRelativePath()).isEqualTo("services/user/user.service.ts");
+        assertThat(file.getRelativePath()).isEqualTo("endpoints/user.service.ts");
         assertThat(file.getBody()).contains("export class UserService {");
         assertThat(file.getBody()).contains("private http = inject(HttpClient);");
         assertThat(file.getBody()).contains("baseURL = environment.serverUrl;");

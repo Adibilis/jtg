@@ -41,7 +41,7 @@ class TypeScriptTypeMapperTest {
         assertThat(TypeScriptTypeMapper.map(new OptionalType(PrimitiveType.String), defaultConfig)).isEqualTo("string | null");
     }
     @Test void mapsEnumType() {
-        assertThat(TypeScriptTypeMapper.map(new EnumType("Status", List.of("ACTIVE", "INACTIVE"), "common"), defaultConfig)).isEqualTo("'ACTIVE' | 'INACTIVE'");
+        assertThat(TypeScriptTypeMapper.map(new EnumType("Status", List.of("ACTIVE", "INACTIVE"), "common"), defaultConfig)).isEqualTo("Status");
     }
     @Test void mapsUnionType() {
         ObjectType dog = new ObjectType("Dog", "animals", List.of());

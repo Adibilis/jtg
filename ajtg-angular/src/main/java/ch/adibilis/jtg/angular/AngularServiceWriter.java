@@ -31,9 +31,8 @@ public class AngularServiceWriter implements Writer {
         GeneratorConfig config = context.config();
         String serviceName = controllerName.replace("Controller", "");
         String kebabName = toKebabCase(serviceName);
-        String packageSegment = serviceName.toLowerCase();
 
-        TypeScriptFile file = new TypeScriptFile("services/" + packageSegment + "/" + kebabName + ".service.ts");
+        TypeScriptFile file = new TypeScriptFile("endpoints/" + kebabName + ".service.ts");
 
         boolean hasParams = endpoints.stream().anyMatch(ep -> !ep.getParams().isEmpty());
         boolean needsHeaders = endpoints.stream().anyMatch(ep -> ep.getFileParams().isEmpty());

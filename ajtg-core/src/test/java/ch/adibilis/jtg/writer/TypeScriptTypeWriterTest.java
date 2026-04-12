@@ -40,8 +40,8 @@ class TypeScriptTypeWriterTest {
 
         assertThat(files).hasSize(1);
         TypeScriptFile file = files.get(0);
-        assertThat(file.getRelativePath()).isEqualTo("types/user/UserResponse.ts");
-        assertThat(file.getBody()).contains("export interface UserResponse {");
+        assertThat(file.getRelativePath()).isEqualTo("types/UserResponse.ts");
+        assertThat(file.getBody()).contains("export default interface UserResponse {");
         assertThat(file.getBody()).contains("    name: string;");
         assertThat(file.getBody()).contains("    age: number;");
     }
@@ -78,7 +78,7 @@ class TypeScriptTypeWriterTest {
         TypeScriptTypeWriter writer = new TypeScriptTypeWriter();
         List<TypeScriptFile> files = writer.generateTypes(types, config);
 
-        assertThat(files.get(0).getBody()).contains("export interface Response<T> {");
+        assertThat(files.get(0).getBody()).contains("export default interface Response<T> {");
         assertThat(files.get(0).getBody()).contains("    data: T;");
     }
 
@@ -92,8 +92,9 @@ class TypeScriptTypeWriterTest {
         TypeScriptTypeWriter writer = new TypeScriptTypeWriter();
         List<TypeScriptFile> files = writer.generateTypes(types, config);
 
-        assertThat(files.get(0).getBody()).contains("export const StatusValues = ['ACTIVE', 'INACTIVE', 'PENDING'] as const;");
-        assertThat(files.get(0).getBody()).contains("export type Status = typeof StatusValues[number];");
+        assertThat(files.get(0).getBody()).contains("type Status = 'ACTIVE' | 'INACTIVE' | 'PENDING';");
+        assertThat(files.get(0).getBody()).contains("export const statusValues: Status[] = ['ACTIVE', 'INACTIVE', 'PENDING'];");
+        assertThat(files.get(0).getBody()).contains("export default Status;");
     }
 
     @Test
@@ -167,7 +168,6 @@ class TypeScriptTypeWriterTest {
         TypeScriptFile userFile = files.stream()
                 .filter(f -> f.getRelativePath().contains("User"))
                 .findFirst().orElseThrow();
-        assertThat(userFile.getImports()).isNotEmpty();
-        assertThat(userFile.getImports().get(0).namedImports()).contains("Address");
+        assertThat(userFile.getBody()).contains("import Address from './Address';");
     }
 }
