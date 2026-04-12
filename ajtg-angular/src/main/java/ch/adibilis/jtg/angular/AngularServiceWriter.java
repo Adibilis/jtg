@@ -6,7 +6,6 @@ import ch.adibilis.jtg.model.types.*;
 import ch.adibilis.jtg.writer.*;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class AngularServiceWriter implements Writer {
 
