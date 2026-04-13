@@ -46,7 +46,7 @@ class TypeScriptTypeMapperTest {
     @Test void mapsUnionType() {
         ObjectType dog = new ObjectType("Dog", "animals", List.of());
         ObjectType cat = new ObjectType("Cat", "animals", List.of());
-        assertThat(TypeScriptTypeMapper.map(new UnionType("Animal", List.of(dog, cat), "animals", "type"), defaultConfig)).isEqualTo("Dog | Cat");
+        assertThat(TypeScriptTypeMapper.map(new UnionType("Animal", List.of(dog, cat), "animals", "type"), defaultConfig)).isEqualTo("Animal");
     }
     @Test void mapsObjectTypeWithoutGenerics() {
         ObjectType obj = new ObjectType("UserResponse", "user", List.of());

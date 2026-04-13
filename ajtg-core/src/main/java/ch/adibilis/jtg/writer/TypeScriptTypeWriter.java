@@ -95,6 +95,7 @@ public class TypeScriptTypeWriter {
 
         String variants = u.variants().stream().map(ObjectType::getName).collect(Collectors.joining(" | "));
         body.append("export type ").append(u.name()).append(" = ").append(variants).append(";\n");
+        body.append("export default ").append(u.name()).append(";\n");
 
         file.setBody(body.toString());
         return file;

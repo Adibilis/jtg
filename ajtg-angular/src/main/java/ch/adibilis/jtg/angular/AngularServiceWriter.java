@@ -37,6 +37,21 @@ public class AngularServiceWriter implements Writer {
         boolean hasParams = endpoints.stream().anyMatch(ep -> !ep.getParams().isEmpty());
         boolean needsHeaders = endpoints.stream().anyMatch(ep -> ep.getFileParams().isEmpty());
 
+        // Collect all referenced type names for imports
+        Set<String> referencedTypes = new LinkedHashSet<>();
+        for (Endpoint ep : endpoints) {
+            collectTypeNames(ep.getReturnType(), referencedTypes);
+            if (ep.getBody() != null) {
+                collectTypeNames(ep.getBody(), referencedTypes);
+            }
+            for (Field f : ep.getUrlArgs()) {
+                collectTypeNames(f.type(), referencedTypes);
+            }
+            for (Field f : ep.getParams()) {
+                collectTypeNames(f.type(), referencedTypes);
+            }
+        }
+
         // Imports
         file.getImports().add(new TypeScriptFile.Import("@angular/core", null, new LinkedHashSet<>(List.of("Injectable", "inject"))));
         if (hasParams) {
@@ -47,6 +62,11 @@ public class AngularServiceWriter implements Writer {
         }
         file.getImports().add(new TypeScriptFile.Import("rxjs", null, new LinkedHashSet<>(List.of("Observable"))));
         file.getImports().add(new TypeScriptFile.Import(config.environmentImportPath(), "environment"));
+
+        // Add type imports
+        for (String typeName : referencedTypes) {
+            file.getImports().add(new TypeScriptFile.Import("../types/" + typeName, typeName));
+        }
 
         StringBuilder body = new StringBuilder();
         body.append(HEADER).append(config.headerSuffix()).append("\n");
@@ -75,6 +95,26 @@ public class AngularServiceWriter implements Writer {
 
         file.setBody(body.toString());
         return file;
+    }
+
+    private void collectTypeNames(Type type, Set<String> names) {
+        switch (type) {
+            case ObjectType o -> {
+                names.add(o.getName());
+                for (Type arg : o.getGenericArgInstantiations()) {
+                    collectTypeNames(arg, names);
+                }
+            }
+            case ArrayType a -> collectTypeNames(a.subType(), names);
+            case MapType m -> {
+                collectTypeNames(m.keyType(), names);
+                collectTypeNames(m.valueType(), names);
+            }
+            case OptionalType o -> collectTypeNames(o.subType(), names);
+            case EnumType e -> names.add(e.name());
+            case UnionType u -> names.add(u.name());
+            default -> {}
+        }
     }
 
     private String buildMethod(Endpoint ep, GeneratorConfig config) {
@@ -127,7 +167,7 @@ public class AngularServiceWriter implements Writer {
         }
 
         // Options
-        String options = buildOptions(hasFileParams, hasQueryParams);
+        String options = buildOptions(ep, hasFileParams, hasQueryParams, hasBody);
         if (!options.isEmpty()) {
             sb.append(",\n            ").append(options);
         }
@@ -206,7 +246,12 @@ public class AngularServiceWriter implements Writer {
         return ep.getUrl().replaceAll("\\{(\\w+)}", "\\${$1}");
     }
 
-    private String buildOptions(boolean hasFileParams, boolean hasQueryParams) {
+    private String buildOptions(Endpoint ep, boolean hasFileParams, boolean hasQueryParams, boolean hasBody) {
+        // DELETE with body: pass body in options since http.delete doesn't take a body argument
+        if (ep.getHttpMethod() == HttpMethod.DELETE && hasBody) {
+            if (hasQueryParams) return "{ headers, params, body }";
+            return "{ headers, body }";
+        }
         if (hasFileParams && hasQueryParams) return "{ params }";
         if (hasFileParams) return "";
         if (hasQueryParams) return "{ headers, params }";
@@ -218,7 +263,7 @@ public class AngularServiceWriter implements Writer {
         for (TypeScriptFile.Import imp : file.getImports()) {
             sb.append("import ");
             if (imp.defaultImport() != null && !imp.defaultImport().isEmpty()) {
-                sb.append("{ ").append(imp.defaultImport()).append(" }");
+                sb.append(imp.defaultImport());
             } else if (imp.namedImports() != null && !imp.namedImports().isEmpty()) {
                 sb.append("{ ").append(String.join(", ", imp.namedImports())).append(" }");
             }
