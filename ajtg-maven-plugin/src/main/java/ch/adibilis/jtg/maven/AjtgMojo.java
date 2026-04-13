@@ -169,8 +169,8 @@ public class AjtgMojo extends AbstractMojo {
             if (subModules != null) {
                 for (String subModule : subModules) {
                     // Add compiled classes
-                    Path subModulePath = project.getBasedir().toPath()
-                            .resolve(subModule).resolve("target").resolve("classes");
+                    Path subModulePath = resolveSubModuleBase(subModule)
+                            .resolve("target").resolve("classes");
                     if (Files.exists(subModulePath)) {
                         urls.add(subModulePath.toUri().toURL());
                     }
@@ -192,8 +192,21 @@ public class AjtgMojo extends AbstractMojo {
         }
     }
 
+    /**
+     * Resolves a subModule name to its root directory.
+     * SubModules are named relative to the parent (root) project, so when the plugin
+     * runs inside a child module, we walk up to the parent's basedir first.
+     */
+    private Path resolveSubModuleBase(String subModule) {
+        MavenProject parent = project.getParent();
+        Path base = (parent != null && parent.getBasedir() != null)
+                ? parent.getBasedir().toPath()
+                : project.getBasedir().toPath();
+        return base.resolve(subModule);
+    }
+
     private MavenProject findAndResolveSubModule(String subModule) throws MojoExecutionException {
-        Path subModulePom = project.getBasedir().toPath().resolve(subModule).resolve("pom.xml");
+        Path subModulePom = resolveSubModuleBase(subModule).resolve("pom.xml");
         if (!Files.exists(subModulePom)) {
             getLog().warn("Submodule pom not found: " + subModulePom);
             return null;

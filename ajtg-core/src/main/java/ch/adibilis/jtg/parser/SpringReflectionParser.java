@@ -398,6 +398,12 @@ public class SpringReflectionParser {
         for (JsonSubTypes.Type sub : subTypes.value()) {
             Type variantType = resolveClass(sub.value());
             if (variantType instanceof ObjectType objVariant) {
+                // Add discriminator field with literal type value (guard against re-entry from circular refs)
+                String discriminatorValue = sub.name().isEmpty() ? sub.value().getSimpleName() : sub.name();
+                if (objVariant.getFields().stream().noneMatch(f -> f.name().equals(discriminatorProperty))) {
+                    Field discriminatorField = new Field(discriminatorProperty, new LiteralType(discriminatorValue));
+                    objVariant.getFields().add(0, discriminatorField);
+                }
                 variants.add(objVariant);
             }
         }

@@ -61,7 +61,7 @@ public class AngularServiceWriter implements Writer {
             file.getImports().add(new TypeScriptFile.Import("@angular/common/http", null, new LinkedHashSet<>(List.of("HttpClient"))));
         }
         file.getImports().add(new TypeScriptFile.Import("rxjs", null, new LinkedHashSet<>(List.of("Observable"))));
-        file.getImports().add(new TypeScriptFile.Import(config.environmentImportPath(), "environment"));
+        file.getImports().add(new TypeScriptFile.Import(config.environmentImportPath(), null, new LinkedHashSet<>(List.of("environment"))));
 
         // Add type imports
         for (String typeName : referencedTypes) {
@@ -147,9 +147,7 @@ public class AngularServiceWriter implements Writer {
         String url = buildUrl(ep);
 
         sb.append("        return this.http.").append(httpMethod);
-        if (!returnType.equals("void")) {
-            sb.append("<").append(returnType).append(">");
-        }
+        sb.append("<").append(returnType).append(">");
         sb.append("(\n");
         sb.append("            this.baseURL + `").append(url).append("`");
 
@@ -181,7 +179,12 @@ public class AngularServiceWriter implements Writer {
     private String buildInputs(Endpoint ep, GeneratorConfig config) {
         List<String> inputs = new ArrayList<>();
 
-        // URL args (always required)
+        // Body first (matches common consumer calling convention)
+        if (ep.getBody() != null) {
+            inputs.add("body: " + TypeScriptTypeMapper.map(ep.getBody(), config));
+        }
+
+        // URL args
         for (Field f : ep.getUrlArgs()) {
             inputs.add(f.name() + ": " + TypeScriptTypeMapper.map(f.type(), config));
         }
@@ -189,11 +192,6 @@ public class AngularServiceWriter implements Writer {
         // File params
         for (Field fp : ep.getFileParams()) {
             inputs.add(fp.name() + ": File");
-        }
-
-        // Body
-        if (ep.getBody() != null) {
-            inputs.add("body: " + TypeScriptTypeMapper.map(ep.getBody(), config));
         }
 
         // Required params first, then optional
@@ -215,31 +213,39 @@ public class AngularServiceWriter implements Writer {
         sb.append("        let params = new HttpParams();\n");
 
         for (Field param : params) {
-            String indent = "        ";
-            boolean needsGuard = !param.required();
-
-            if (needsGuard) {
-                sb.append(indent).append("if (").append(param.name()).append(") {\n");
-                indent = "            ";
-            }
-
-            if (param.type() instanceof ArrayType) {
-                sb.append(indent).append("params = ").append(param.name())
-                        .append(".reduce((p, item) => p.append('").append(param.name()).append("', item), params);\n");
-            } else if (param.type() == PrimitiveType.Date && !config.dateAsString()) {
-                sb.append(indent).append("params = params.append('").append(param.name())
-                        .append("', ").append(param.name()).append(".toISOString());\n");
+            if (param.type() instanceof ObjectType objType) {
+                // Expand object fields as individual query params (Spring @ModelAttribute behavior)
+                for (Field field : objType.getFields()) {
+                    appendParam(sb, param.name() + "." + field.name(), field.name(), field.type(), !field.required(), config);
+                }
             } else {
-                sb.append(indent).append("params = params.append('").append(param.name())
-                        .append("', ").append(param.name()).append(");\n");
-            }
-
-            if (needsGuard) {
-                sb.append("        }\n");
+                appendParam(sb, param.name(), param.name(), param.type(), !param.required(), config);
             }
         }
 
         return sb.toString();
+    }
+
+    private void appendParam(StringBuilder sb, String accessor, String paramName, Type type,
+                              boolean optional, GeneratorConfig config) {
+        String indent = "        ";
+        if (optional) {
+            sb.append(indent).append("if (").append(accessor).append(") {\n");
+            indent = "            ";
+        }
+        if (type instanceof ArrayType) {
+            sb.append(indent).append("params = ").append(accessor)
+                    .append(".reduce((p, item) => p.append('").append(paramName).append("', item), params);\n");
+        } else if (type == PrimitiveType.Date && !config.dateAsString()) {
+            sb.append(indent).append("params = params.append('").append(paramName)
+                    .append("', ").append(accessor).append(".toISOString());\n");
+        } else {
+            sb.append(indent).append("params = params.append('").append(paramName)
+                    .append("', ").append(accessor).append(");\n");
+        }
+        if (optional) {
+            sb.append("        }\n");
+        }
     }
 
     private String buildUrl(Endpoint ep) {
