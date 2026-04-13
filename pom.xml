@@ -36,6 +36,14 @@
         <url>https://github.com/adibilis/jtg</url>
     </scm>
 
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/adibilis/jtg</url>
+        </repository>
+    </distributionManagement>
+
     <modules>
         <module>ajtg-core</module>
         <module>ajtg-angular</module>
