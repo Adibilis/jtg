@@ -65,6 +65,9 @@ public class AjtgMojo extends AbstractMojo {
     @Parameter(defaultValue = "0")
     private int paginationOffset;
 
+    @Parameter(defaultValue = "true")
+    private boolean clean;
+
     @Override
     public void execute() throws MojoExecutionException {
         try {
@@ -129,6 +132,28 @@ public class AjtgMojo extends AbstractMojo {
             Map<String, TypeScriptFile> deduped = new LinkedHashMap<>();
             for (TypeScriptFile file : allFiles) {
                 deduped.put(file.getRelativePath(), file);
+            }
+
+            // Clean output directories before writing
+            if (clean) {
+                for (String outputDir : outputDirectories) {
+                    Path outPath = Path.of(outputDir);
+                    if (Files.exists(outPath)) {
+                        try (var walk = Files.walk(outPath)) {
+                            walk.sorted(Comparator.reverseOrder())
+                                    .forEach(p -> {
+                                        try {
+                                            if (!p.equals(outPath)) {
+                                                Files.delete(p);
+                                            }
+                                        } catch (Exception e) {
+                                            getLog().warn("Failed to delete " + p + ": " + e.getMessage());
+                                        }
+                                    });
+                        }
+                        getLog().info("Cleaned output directory: " + outPath);
+                    }
+                }
             }
 
             // Write files to all output directories
