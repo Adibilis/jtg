@@ -245,11 +245,24 @@ class SpringReflectionParserTypeTest {
     // --- Inner class ---
 
     @Test
-    void parsesInnerClass() {
+    void parsesInnerClassWithOuterClassPrefix() {
         Type result = parser.resolveType(OuterClass.Inner.class);
         assertThat(result).isInstanceOf(ObjectType.class);
         ObjectType obj = (ObjectType) result;
-        assertThat(obj.getName()).isEqualTo("Inner");
+        assertThat(obj.getName()).isEqualTo("OuterClassInner");
+    }
+
+    @Test
+    void innerClassesWithSameSimpleNameInDifferentOutersGetDistinctNames() {
+        Type resultA = parser.resolveType(EntityA.Projection.class);
+        Type resultB = parser.resolveType(EntityB.Projection.class);
+        assertThat(resultA).isInstanceOf(ObjectType.class);
+        assertThat(resultB).isInstanceOf(ObjectType.class);
+        String nameA = ((ObjectType) resultA).getName();
+        String nameB = ((ObjectType) resultB).getName();
+        assertThat(nameA).isEqualTo("EntityAProjection");
+        assertThat(nameB).isEqualTo("EntityBProjection");
+        assertThat(nameA).isNotEqualTo(nameB);
     }
 
     // --- Array fields on objects ---
