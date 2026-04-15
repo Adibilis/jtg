@@ -119,6 +119,14 @@ public class SpringReflectionParser {
         return resolveClass(clazz);
     }
 
+    private String computeSimpleName(Class<?> clazz) {
+        Class<?> enclosing = clazz.getEnclosingClass();
+        if (enclosing != null) {
+            return enclosing.getSimpleName() + clazz.getSimpleName();
+        }
+        return clazz.getSimpleName();
+    }
+
     // --- Class resolution ---
 
     private Type resolveClass(Class<?> clazz) {
@@ -128,7 +136,7 @@ public class SpringReflectionParser {
         }
 
         // Custom type mappings
-        String simpleName = clazz.getSimpleName().replace("$", "");
+        String simpleName = computeSimpleName(clazz);
         String customMapping = config.customTypeMappings().get(simpleName);
         if (customMapping != null) {
             return mapCustomType(customMapping);
@@ -208,7 +216,7 @@ public class SpringReflectionParser {
     // --- Enum parsing ---
 
     private EnumType parseEnum(Class<?> clazz) {
-        String name = clazz.getSimpleName().replace("$", "");
+        String name = computeSimpleName(clazz);
         String packageSegment = extractPackageSegment(clazz);
         List<String> values = Arrays.stream(clazz.getEnumConstants())
                 .map(e -> ((Enum<?>) e).name())
@@ -235,7 +243,7 @@ public class SpringReflectionParser {
             return parseUnion(clazz, typeInfo, subTypes);
         }
 
-        String simpleName = clazz.getSimpleName().replace("$", "");
+        String simpleName = computeSimpleName(clazz);
         String packageSegment = extractPackageSegment(clazz);
         List<String> genericParams = Arrays.stream(clazz.getTypeParameters())
                 .map(TypeVariable::getName)
@@ -441,7 +449,14 @@ public class SpringReflectionParser {
 
         String className = controllerClass.getSimpleName();
 
-        for (Method method : controllerClass.getDeclaredMethods()) {
+        List<Method> allMethods = new ArrayList<>();
+        Class<?> cls = controllerClass;
+        while (cls != null && cls != Object.class) {
+            allMethods.addAll(Arrays.asList(cls.getDeclaredMethods()));
+            cls = cls.getSuperclass();
+        }
+
+        for (Method method : allMethods) {
             if (Modifier.isStatic(method.getModifiers())) continue;
 
             HttpMethod httpMethod = null;
