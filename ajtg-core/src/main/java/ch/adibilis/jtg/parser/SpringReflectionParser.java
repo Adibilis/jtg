@@ -455,6 +455,9 @@ public class SpringReflectionParser {
             allMethods.addAll(Arrays.asList(cls.getDeclaredMethods()));
             cls = cls.getSuperclass();
         }
+        // getDeclaredMethods() returns methods in no defined order; sort for deterministic output.
+        allMethods.sort(Comparator.comparing(Method::getName)
+                .thenComparingInt(Method::getParameterCount));
 
         for (Method method : allMethods) {
             if (Modifier.isStatic(method.getModifiers())) continue;
