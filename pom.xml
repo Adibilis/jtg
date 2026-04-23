@@ -6,7 +6,7 @@
 
     <groupId>ch.adibilis.jtg</groupId>
     <artifactId>ajtg-parent</artifactId>
-    <version>1.0.1</version>
+    <version>1.0.2</version>
     <packaging>pom</packaging>
 
     <name>AJTG - Adibilis Java Type Generator</name>
