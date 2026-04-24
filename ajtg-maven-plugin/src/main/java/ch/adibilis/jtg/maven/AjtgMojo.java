@@ -299,7 +299,13 @@ public class AjtgMojo extends AbstractMojo {
     }
 
     private void checkParametersFlag(Class<?> clazz) {
-        for (java.lang.reflect.Method method : clazz.getDeclaredMethods()) {
+        java.lang.reflect.Method[] declared = clazz.getDeclaredMethods();
+        java.lang.reflect.Method[] candidates = Arrays.stream(declared)
+                .filter(m -> !m.isSynthetic() && !m.isBridge())
+                .sorted(Comparator.comparing(java.lang.reflect.Method::getName)
+                        .thenComparingInt(java.lang.reflect.Method::getParameterCount))
+                .toArray(java.lang.reflect.Method[]::new);
+        for (java.lang.reflect.Method method : candidates) {
             if (method.getParameters().length > 0) {
                 if (method.getParameters()[0].getName().equals("arg0")) {
                     throw new IllegalStateException(
