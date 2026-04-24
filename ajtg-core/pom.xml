@@ -6,7 +6,7 @@
     <parent>
         <groupId>ch.adibilis.jtg</groupId>
         <artifactId>ajtg-parent</artifactId>
-        <version>1.0.2</version>
+        <version>1.0.3</version>
     </parent>
     <artifactId>ajtg-core</artifactId>
     <dependencies>
