@@ -7,6 +7,7 @@ import ch.adibilis.jtg.validation.Validation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -41,6 +42,7 @@ class SpringReflectionParserTypeTest {
     @Test void parsesDoubleWrapper() { assertThat(parser.resolveType(Double.class)).isEqualTo(PrimitiveType.Double); }
     @Test void parsesNumber() { assertThat(parser.resolveType(Number.class)).isEqualTo(PrimitiveType.Double); }
     @Test void parsesBigInteger() { assertThat(parser.resolveType(BigInteger.class)).isEqualTo(PrimitiveType.BigInt); }
+    @Test void parsesBigDecimal() { assertThat(parser.resolveType(BigDecimal.class)).isEqualTo(PrimitiveType.Double); }
     @Test void parsesString() { assertThat(parser.resolveType(String.class)).isEqualTo(PrimitiveType.String); }
     @Test void parsesBoolean() { assertThat(parser.resolveType(boolean.class)).isEqualTo(PrimitiveType.Boolean); }
     @Test void parsesBooleanWrapper() { assertThat(parser.resolveType(Boolean.class)).isEqualTo(PrimitiveType.Boolean); }

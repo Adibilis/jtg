@@ -27,6 +27,7 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.TypeVariable;
+import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -48,7 +49,7 @@ public class SpringReflectionParser {
     private static final Set<String> DOUBLE_TYPES = Set.of(
             float.class.getName(), Float.class.getName(),
             double.class.getName(), Double.class.getName(),
-            Number.class.getName()
+            Number.class.getName(), BigDecimal.class.getName()
     );
 
     private static final Set<String> DATE_TYPES = Set.of(
