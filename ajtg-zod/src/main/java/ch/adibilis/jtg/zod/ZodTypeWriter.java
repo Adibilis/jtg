@@ -38,24 +38,42 @@ public class ZodTypeWriter implements Writer {
 
         List<TypeScriptFile> files = new ArrayList<>();
 
-        // Generate plain TS for non-validated types (non-enum, non-validated objects)
+        // Generate plain TS for non-validated types (non-enum, non-validated objects).
+        // TypeScriptTypeWriter resolves and renders its own imports internally.
         TypeScriptTypeWriter tsWriter = new TypeScriptTypeWriter();
         files.addAll(tsWriter.generateTypes(plainTypes, config));
 
-        // Generate Zod schemas for validated object types
+        // Generate Zod schemas for validated object types.
+        List<TypeScriptFile> zodFiles = new ArrayList<>();
         for (Map.Entry<String, Type> entry : zodObjectTypes.entrySet()) {
             if (entry.getValue() instanceof ObjectType obj) {
-                files.add(generateZodObject(obj, config));
+                zodFiles.add(generateZodObject(obj, config));
             }
         }
 
-        // Generate Zod enums
+        // Generate Zod enums.
         for (Map.Entry<String, Type> entry : zodEnumTypes.entrySet()) {
             if (entry.getValue() instanceof EnumType e) {
-                files.add(generateZodEnum(e, config));
+                zodFiles.add(generateZodEnum(e, config));
             }
         }
 
+        // Resolve cross-references between Zod files and render every Zod file's
+        // registered imports into its body. Without this pass, `z` and any
+        // referenced `<Name>Model` symbols would be undefined at runtime.
+        Map<String, TypeScriptFile> zodFileByName = new LinkedHashMap<>();
+        for (TypeScriptFile f : zodFiles) {
+            zodFileByName.put(extractTypeName(f.getRelativePath()), f);
+        }
+        for (TypeScriptFile f : zodFiles) {
+            Type sourceType = namedTypes.get(extractTypeName(f.getRelativePath()));
+            if (sourceType instanceof ObjectType obj) {
+                resolveModelImports(f, obj, zodFileByName);
+            }
+            renderImportsIntoBody(f);
+        }
+
+        files.addAll(zodFiles);
         return files;
     }
 
@@ -192,6 +210,71 @@ public class ZodTypeWriter implements Writer {
 
         file.setBody(body.toString());
         return file;
+    }
+
+    /**
+     * Walks a validated object's fields and registers a named import for every
+     * cross-reference to another Zod-emitted schema ({@code <Name>Model}).
+     * <p>
+     * Limitation: references to plain (non-validated) object types are *not*
+     * registered — the schema body emits {@code <Name>Model} but no such symbol
+     * exists in the plain file. To keep a Zod subtree compilable, every
+     * cross-referenced ObjectType must also carry at least one validation
+     * (or be promoted otherwise). Enums in field position are inlined as
+     * {@code z.enum([...])}, so they need no import.
+     */
+    private void resolveModelImports(TypeScriptFile file, ObjectType obj, Map<String, TypeScriptFile> zodFileByName) {
+        Set<String> referenced = new LinkedHashSet<>();
+        for (Field field : obj.getFields()) {
+            collectObjectReferences(field.type(), referenced);
+        }
+        for (String name : referenced) {
+            if (name.equals(obj.getName())) continue;
+            TypeScriptFile target = zodFileByName.get(name);
+            if (target == null) continue;
+            String importPath = file.resolveImportPath(target);
+            file.getImports().add(new TypeScriptFile.Import(importPath, null, Set.of(name + "Model")));
+        }
+    }
+
+    private void collectObjectReferences(Type type, Set<String> out) {
+        switch (type) {
+            case ObjectType o -> out.add(o.getName());
+            case ArrayType a -> collectObjectReferences(a.subType(), out);
+            case MapType m -> {
+                collectObjectReferences(m.keyType(), out);
+                collectObjectReferences(m.valueType(), out);
+            }
+            case OptionalType o -> collectObjectReferences(o.subType(), out);
+            default -> {}
+        }
+    }
+
+    private void renderImportsIntoBody(TypeScriptFile file) {
+        if (file.getImports().isEmpty()) return;
+
+        StringBuilder importBlock = new StringBuilder();
+        for (TypeScriptFile.Import imp : file.getImports()) {
+            if (imp.defaultImport() != null && !imp.defaultImport().isEmpty()) {
+                importBlock.append("import ").append(imp.defaultImport())
+                        .append(" from '").append(imp.path()).append("';\n");
+            } else if (imp.namedImports() != null && !imp.namedImports().isEmpty()) {
+                importBlock.append("import { ").append(String.join(", ", imp.namedImports()))
+                        .append(" } from '").append(imp.path()).append("';\n");
+            }
+        }
+
+        // Insert imports after the header line so the generator comment stays on top.
+        String body = file.getBody();
+        int headerEnd = body.indexOf('\n');
+        if (headerEnd >= 0) {
+            file.setBody(body.substring(0, headerEnd + 1) + importBlock + body.substring(headerEnd + 1));
+        }
+    }
+
+    private String extractTypeName(String relativePath) {
+        String fileName = relativePath.substring(relativePath.lastIndexOf('/') + 1);
+        return fileName.replace(".ts", "");
     }
 
     private String header(GeneratorConfig config) {

@@ -167,4 +167,83 @@ class ZodTypeWriterTest {
     void handlesTypesTrue() {
         assertThat(new ZodTypeWriter().handlesTypes()).isTrue();
     }
+
+    @Test
+    void zodObjectFileImportsZFromZod() {
+        ObjectType obj = new ObjectType("Form", "common", List.of());
+        obj.setFields(List.of(
+                new Field("name", PrimitiveType.String, true, List.of(new Validation.NotBlank("")))
+        ));
+
+        Map<String, Type> types = new LinkedHashMap<>();
+        types.put("Form", obj);
+        GeneratorContext ctx = new GeneratorContext(List.of(), types, config);
+
+        TypeScriptFile file = new ZodTypeWriter().generate(ctx).getFirst();
+        assertThat(file.getBody()).contains("import { z } from 'zod';");
+    }
+
+    @Test
+    void zodEnumFileImportsZFromZod() {
+        EnumType status = new EnumType("Status", List.of("ACTIVE"), "common");
+
+        Map<String, Type> types = new LinkedHashMap<>();
+        types.put("Status", status);
+        GeneratorContext ctx = new GeneratorContext(List.of(), types, config);
+
+        TypeScriptFile file = new ZodTypeWriter().generate(ctx).getFirst();
+        assertThat(file.getBody()).contains("import { z } from 'zod';");
+    }
+
+    @Test
+    void zodObjectImportsReferencedZodModel() {
+        ObjectType address = new ObjectType("Address", "common", List.of());
+        address.setFields(List.of(
+                new Field("street", PrimitiveType.String, true, List.of(new Validation.NotBlank("")))
+        ));
+
+        ObjectType lead = new ObjectType("Lead", "lead", List.of());
+        lead.setFields(List.of(
+                new Field("address", address, true, List.of(new Validation.NotBlank("")))
+        ));
+
+        Map<String, Type> types = new LinkedHashMap<>();
+        types.put("Address", address);
+        types.put("Lead", lead);
+        GeneratorContext ctx = new GeneratorContext(List.of(), types, config);
+
+        TypeScriptFile leadFile = new ZodTypeWriter().generate(ctx).stream()
+                .filter(f -> f.getRelativePath().endsWith("Lead.ts"))
+                .findFirst().orElseThrow();
+
+        assertThat(leadFile.getBody()).contains("AddressModel");
+        assertThat(leadFile.getBody()).contains("import { AddressModel } from");
+        // Cross-package import path is relative
+        assertThat(leadFile.getBody()).contains("../common/Address");
+    }
+
+    @Test
+    void zodObjectImportsZodModelReferencedInsideArray() {
+        ObjectType item = new ObjectType("Item", "common", List.of());
+        item.setFields(List.of(
+                new Field("name", PrimitiveType.String, true, List.of(new Validation.NotBlank("")))
+        ));
+
+        ObjectType bag = new ObjectType("Bag", "common", List.of());
+        bag.setFields(List.of(
+                new Field("items", new ArrayType(item), true, List.of(new Validation.Size(1, 10, "")))
+        ));
+
+        Map<String, Type> types = new LinkedHashMap<>();
+        types.put("Item", item);
+        types.put("Bag", bag);
+        GeneratorContext ctx = new GeneratorContext(List.of(), types, config);
+
+        TypeScriptFile bagFile = new ZodTypeWriter().generate(ctx).stream()
+                .filter(f -> f.getRelativePath().endsWith("Bag.ts"))
+                .findFirst().orElseThrow();
+
+        assertThat(bagFile.getBody()).contains("import { ItemModel } from");
+        assertThat(bagFile.getBody()).contains("z.array(ItemModel)");
+    }
 }
