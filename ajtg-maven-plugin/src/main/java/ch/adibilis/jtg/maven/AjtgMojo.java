@@ -114,18 +114,39 @@ public class AjtgMojo extends AbstractMojo {
             // Collect generated files
             List<TypeScriptFile> allFiles = new ArrayList<>();
 
-            // Check if any writer handles types (e.g., ZodTypeWriter)
+            // Phase 1: type writers run first so their output is available to
+            // endpoint writers (which need to know paths + default-vs-named import
+            // shape for every referenced type).
             boolean typesHandled = writers.stream().anyMatch(Writer::handlesTypes);
 
             if (!typesHandled) {
                 // Use TypeScriptTypeWriter for type generation
                 TypeScriptTypeWriter typeWriter = new TypeScriptTypeWriter();
                 allFiles.addAll(typeWriter.generateTypes(namedTypes, config));
+            } else {
+                for (Writer w : writers) {
+                    if (w.handlesTypes()) {
+                        allFiles.addAll(w.generate(context));
+                    }
+                }
             }
 
-            // Run all ServiceLoader writers
+            // Build a simple-name → file map of every type file emitted so far,
+            // so endpoint writers can resolve the relative path + import shape.
+            Map<String, TypeScriptFile> typeFiles = new LinkedHashMap<>();
+            for (TypeScriptFile f : allFiles) {
+                String name = f.getRelativePath();
+                name = name.substring(name.lastIndexOf('/') + 1).replace(".ts", "");
+                typeFiles.put(name, f);
+            }
+
+            GeneratorContext endpointContext = new GeneratorContext(
+                    context.endpoints(), context.namedTypes(), context.config(), typeFiles);
+
+            // Phase 2: non-type writers (endpoint writers) run with the enriched context.
             for (Writer writer : writers) {
-                allFiles.addAll(writer.generate(context));
+                if (writer.handlesTypes()) continue;
+                allFiles.addAll(writer.generate(endpointContext));
             }
 
             // Deduplicate by relativePath (last one wins)

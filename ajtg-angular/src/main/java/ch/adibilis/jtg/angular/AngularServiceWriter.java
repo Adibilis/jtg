@@ -63,9 +63,23 @@ public class AngularServiceWriter implements Writer {
         file.getImports().add(new TypeScriptFile.Import("rxjs", null, new LinkedHashSet<>(List.of("Observable"))));
         file.getImports().add(new TypeScriptFile.Import(config.environmentImportPath(), null, new LinkedHashSet<>(List.of("environment"))));
 
-        // Add type imports
+        // Add type imports. Look up each referenced type in the file map produced
+        // by the type writers (populated by the Mojo before this writer runs).
+        // Falls back to the legacy flat default-import path when the map is empty
+        // (e.g. when no type writer ran first, or for an unknown type name).
+        Map<String, TypeScriptFile> typeFiles = context.typeFiles();
         for (String typeName : referencedTypes) {
-            file.getImports().add(new TypeScriptFile.Import("../types/" + typeName, typeName));
+            TypeScriptFile typeFile = typeFiles.get(typeName);
+            if (typeFile == null) {
+                file.getImports().add(new TypeScriptFile.Import("../types/" + typeName, typeName));
+                continue;
+            }
+            String importPath = file.resolveImportPath(typeFile);
+            if (typeFile.hasDefaultExport()) {
+                file.getImports().add(new TypeScriptFile.Import(importPath, typeName));
+            } else {
+                file.getImports().add(new TypeScriptFile.Import(importPath, null, Set.of(typeName)));
+            }
         }
 
         StringBuilder body = new StringBuilder();

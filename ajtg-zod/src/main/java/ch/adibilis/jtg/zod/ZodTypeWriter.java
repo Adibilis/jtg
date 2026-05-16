@@ -36,13 +36,6 @@ public class ZodTypeWriter implements Writer {
             }
         }
 
-        List<TypeScriptFile> files = new ArrayList<>();
-
-        // Generate plain TS for non-validated types (non-enum, non-validated objects).
-        // TypeScriptTypeWriter resolves and renders its own imports internally.
-        TypeScriptTypeWriter tsWriter = new TypeScriptTypeWriter();
-        files.addAll(tsWriter.generateTypes(plainTypes, config));
-
         // Generate Zod schemas for validated object types.
         List<TypeScriptFile> zodFiles = new ArrayList<>();
         for (Map.Entry<String, Type> entry : zodObjectTypes.entrySet()) {
@@ -58,13 +51,17 @@ public class ZodTypeWriter implements Writer {
             }
         }
 
-        // Resolve cross-references between Zod files and render every Zod file's
-        // registered imports into its body. Without this pass, `z` and any
-        // referenced `<Name>Model` symbols would be undefined at runtime.
+        // Build the Zod-emitted file map before TypeScriptTypeWriter runs so plain
+        // DTOs that reference an enum or a validated schema can be resolved against
+        // it (named imports, since Zod files carry no default export).
         Map<String, TypeScriptFile> zodFileByName = new LinkedHashMap<>();
         for (TypeScriptFile f : zodFiles) {
             zodFileByName.put(extractTypeName(f.getRelativePath()), f);
         }
+
+        // Resolve cross-references between Zod files and render every Zod file's
+        // registered imports into its body. Without this pass, `z` and any
+        // referenced `<Name>Model` symbols would be undefined at runtime.
         for (TypeScriptFile f : zodFiles) {
             Type sourceType = namedTypes.get(extractTypeName(f.getRelativePath()));
             if (sourceType instanceof ObjectType obj) {
@@ -72,6 +69,15 @@ public class ZodTypeWriter implements Writer {
             }
             renderImportsIntoBody(f);
         }
+
+        List<TypeScriptFile> files = new ArrayList<>();
+
+        // Generate plain TS for non-validated types. Pass the Zod-emitted files
+        // as external named-import targets so plain DTOs that reference enums
+        // (e.g. `LeadStatusUpdateRequest.status: LeadStatus`) get proper
+        // `import { LeadStatus } from '...'` statements.
+        TypeScriptTypeWriter tsWriter = new TypeScriptTypeWriter();
+        files.addAll(tsWriter.generateTypes(plainTypes, config, zodFileByName));
 
         files.addAll(zodFiles);
         return files;
