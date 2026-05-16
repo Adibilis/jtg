@@ -44,6 +44,19 @@ public class AjtgMojo extends AbstractMojo {
     @Parameter(required = true)
     private List<String> outputDirectories;
 
+    /**
+     * Output directories that receive only files emitted by type-handling writers
+     * (those whose {@link Writer#handlesTypes()} returns true) — typically the
+     * generated TypeScript interfaces / enums / Zod schemas. Endpoint-writer
+     * output (Angular services etc.) is filtered out before writing.
+     * <p>
+     * Useful when a consumer wants the shared type definitions but has no use for
+     * framework-specific service files — e.g. a Next.js site that imports types
+     * from a Spring Boot project that also publishes Angular services.
+     */
+    @Parameter
+    private List<String> typesOnlyOutputDirectories;
+
     @Parameter(defaultValue = "false")
     private boolean dateAsString;
 
@@ -111,22 +124,20 @@ public class AjtgMojo extends AbstractMojo {
             List<Writer> writers = new ArrayList<>();
             writerLoader.forEach(writers::add);
 
-            // Collect generated files
-            List<TypeScriptFile> allFiles = new ArrayList<>();
-
             // Phase 1: type writers run first so their output is available to
             // endpoint writers (which need to know paths + default-vs-named import
             // shape for every referenced type).
+            List<TypeScriptFile> typeFilesEmitted = new ArrayList<>();
             boolean typesHandled = writers.stream().anyMatch(Writer::handlesTypes);
 
             if (!typesHandled) {
                 // Use TypeScriptTypeWriter for type generation
                 TypeScriptTypeWriter typeWriter = new TypeScriptTypeWriter();
-                allFiles.addAll(typeWriter.generateTypes(namedTypes, config));
+                typeFilesEmitted.addAll(typeWriter.generateTypes(namedTypes, config));
             } else {
                 for (Writer w : writers) {
                     if (w.handlesTypes()) {
-                        allFiles.addAll(w.generate(context));
+                        typeFilesEmitted.addAll(w.generate(context));
                     }
                 }
             }
@@ -134,7 +145,7 @@ public class AjtgMojo extends AbstractMojo {
             // Build a simple-name → file map of every type file emitted so far,
             // so endpoint writers can resolve the relative path + import shape.
             Map<String, TypeScriptFile> typeFiles = new LinkedHashMap<>();
-            for (TypeScriptFile f : allFiles) {
+            for (TypeScriptFile f : typeFilesEmitted) {
                 String name = f.getRelativePath();
                 name = name.substring(name.lastIndexOf('/') + 1).replace(".ts", "");
                 typeFiles.put(name, f);
@@ -144,20 +155,30 @@ public class AjtgMojo extends AbstractMojo {
                     context.endpoints(), context.namedTypes(), context.config(), typeFiles);
 
             // Phase 2: non-type writers (endpoint writers) run with the enriched context.
+            List<TypeScriptFile> endpointFilesEmitted = new ArrayList<>();
             for (Writer writer : writers) {
                 if (writer.handlesTypes()) continue;
-                allFiles.addAll(writer.generate(endpointContext));
+                endpointFilesEmitted.addAll(writer.generate(endpointContext));
             }
 
-            // Deduplicate by relativePath (last one wins)
+            // Deduplicate by relativePath across both phases (last one wins) and
+            // keep separate sets for the types-only output filter below.
             Map<String, TypeScriptFile> deduped = new LinkedHashMap<>();
-            for (TypeScriptFile file : allFiles) {
-                deduped.put(file.getRelativePath(), file);
-            }
+            for (TypeScriptFile file : typeFilesEmitted) deduped.put(file.getRelativePath(), file);
+            for (TypeScriptFile file : endpointFilesEmitted) deduped.put(file.getRelativePath(), file);
 
-            // Clean output directories before writing
+            Set<String> typeFilePaths = new HashSet<>();
+            for (TypeScriptFile file : typeFilesEmitted) typeFilePaths.add(file.getRelativePath());
+
+            List<String> typesOnlyDirs = typesOnlyOutputDirectories != null
+                    ? typesOnlyOutputDirectories : List.of();
+
+            // Clean every output directory (full + types-only) before writing.
             if (clean) {
-                for (String outputDir : outputDirectories) {
+                List<String> allDirs = new ArrayList<>(outputDirectories.size() + typesOnlyDirs.size());
+                allDirs.addAll(outputDirectories);
+                allDirs.addAll(typesOnlyDirs);
+                for (String outputDir : allDirs) {
                     Path outPath = Path.of(outputDir);
                     if (Files.exists(outPath)) {
                         try (var walk = Files.walk(outPath)) {
@@ -177,25 +198,35 @@ public class AjtgMojo extends AbstractMojo {
                 }
             }
 
-            // Write files to all output directories
+            // Write all files to full output directories.
             for (String outputDir : outputDirectories) {
-                Path outPath = Path.of(outputDir);
-                for (TypeScriptFile file : deduped.values()) {
-                    Path filePath = outPath.resolve(file.getRelativePath());
-                    Files.createDirectories(filePath.getParent());
-
-                    StringBuilder content = new StringBuilder();
-                    // Import statements are rendered by the writer into the body
-                    content.append(file.getBody());
-
-                    Files.writeString(filePath, content.toString());
-                }
+                writeFiles(outputDir, deduped.values());
             }
 
-            getLog().info("Generated " + deduped.size() + " files to " + outputDirectories.size() + " output directories");
+            // Write only type files to types-only output directories.
+            for (String outputDir : typesOnlyDirs) {
+                List<TypeScriptFile> filtered = new ArrayList<>();
+                for (TypeScriptFile f : deduped.values()) {
+                    if (typeFilePaths.contains(f.getRelativePath())) filtered.add(f);
+                }
+                writeFiles(outputDir, filtered);
+            }
+
+            getLog().info("Generated " + deduped.size() + " files to " + outputDirectories.size()
+                    + " full output directories and " + typesOnlyDirs.size() + " types-only output directories");
 
         } catch (Exception e) {
             throw new MojoExecutionException("AJTG generation failed", e);
+        }
+    }
+
+    private void writeFiles(String outputDir, Iterable<TypeScriptFile> files) throws java.io.IOException {
+        Path outPath = Path.of(outputDir);
+        for (TypeScriptFile file : files) {
+            Path filePath = outPath.resolve(file.getRelativePath());
+            Files.createDirectories(filePath.getParent());
+            // Imports were rendered into the body by each writer's own pass.
+            Files.writeString(filePath, file.getBody());
         }
     }
 
