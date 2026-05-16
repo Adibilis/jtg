@@ -223,6 +223,51 @@ class ZodTypeWriterTest {
     }
 
     @Test
+    void plainTypeImportsZodEnumThatItReferences() {
+        EnumType status = new EnumType("Status", List.of("ACTIVE", "INACTIVE"), "common");
+        ObjectType req = new ObjectType("UpdateRequest", "request", List.of());
+        req.setFields(List.of(new Field("status", status)));
+
+        Map<String, Type> types = new LinkedHashMap<>();
+        types.put("Status", status);
+        types.put("UpdateRequest", req);
+        GeneratorContext ctx = new GeneratorContext(List.of(), types, config);
+
+        TypeScriptFile reqFile = new ZodTypeWriter().generate(ctx).stream()
+                .filter(f -> f.getRelativePath().endsWith("UpdateRequest.ts"))
+                .findFirst().orElseThrow();
+
+        // Plain interface (UpdateRequest has no validations) gets a named import
+        // for the Zod-emitted enum, pointing at types/common/Status.ts.
+        assertThat(reqFile.getBody()).contains("import { Status } from");
+        assertThat(reqFile.getBody()).contains("common/Status");
+        assertThat(reqFile.getBody()).contains("status: Status;");
+    }
+
+    @Test
+    void plainTypeImportsValidatedZodObjectItReferences() {
+        ObjectType address = new ObjectType("Address", "common", List.of());
+        address.setFields(List.of(
+                new Field("street", PrimitiveType.String, true, List.of(new Validation.NotBlank("")))
+        ));
+        ObjectType contact = new ObjectType("Contact", "contact", List.of());
+        // Contact itself has no validations -> stays as a plain interface
+        contact.setFields(List.of(new Field("address", address)));
+
+        Map<String, Type> types = new LinkedHashMap<>();
+        types.put("Address", address);
+        types.put("Contact", contact);
+        GeneratorContext ctx = new GeneratorContext(List.of(), types, config);
+
+        TypeScriptFile contactFile = new ZodTypeWriter().generate(ctx).stream()
+                .filter(f -> f.getRelativePath().endsWith("Contact.ts"))
+                .findFirst().orElseThrow();
+
+        assertThat(contactFile.getBody()).contains("import { Address } from");
+        assertThat(contactFile.getBody()).contains("common/Address");
+    }
+
+    @Test
     void zodObjectImportsZodModelReferencedInsideArray() {
         ObjectType item = new ObjectType("Item", "common", List.of());
         item.setFields(List.of(

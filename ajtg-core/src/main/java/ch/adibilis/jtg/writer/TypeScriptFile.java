@@ -10,6 +10,12 @@ public class TypeScriptFile {
     private String relativePath;
     private final List<Import> imports = new ArrayList<>();
     private String body;
+    /**
+     * True when this file's primary type is reachable via {@code import X from '...'}.
+     * Endpoint writers consult this when deciding default vs named import for a
+     * referenced type. Defaults to false (e.g. Zod files export only named symbols).
+     */
+    private boolean hasDefaultExport;
 
     public record Import(String path, String defaultImport, Set<String> namedImports) {
         public Import(String path, Set<String> namedImports) {
@@ -42,4 +48,6 @@ public class TypeScriptFile {
     public List<Import> getImports() { return imports; }
     public String getBody() { return body; }
     public void setBody(String body) { this.body = body; }
+    public boolean hasDefaultExport() { return hasDefaultExport; }
+    public void setHasDefaultExport(boolean hasDefaultExport) { this.hasDefaultExport = hasDefaultExport; }
 }

@@ -210,4 +210,62 @@ class AngularServiceWriterTest {
         assertThat(body).contains(".reduce(");
         assertThat(body).contains("p.append('tags', item)");
     }
+
+    @Test
+    void usesNamedImportAndCorrectPathForZodEmittedType() {
+        // Endpoint returns an enum that lives in a Zod-emitted file: nested path,
+        // no default export. The service file should reflect both.
+        EnumType status = new EnumType("Status", List.of("OK", "BAD"), "common");
+        Endpoint ep = makeEndpoint("StatusController", "getStatus", HttpMethod.GET,
+                "/api/status", status);
+
+        // Simulate what the Mojo populates: a type file at the Zod nested path
+        // with hasDefaultExport=false.
+        TypeScriptFile statusFile = new TypeScriptFile("types/common/Status.ts");
+        statusFile.setHasDefaultExport(false);
+        Map<String, TypeScriptFile> typeFiles = Map.of("Status", statusFile);
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config, typeFiles);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        TypeScriptFile file = writer.generate(ctx).get(0);
+
+        assertThat(file.getBody()).contains("import { Status } from '../types/common/Status';");
+    }
+
+    @Test
+    void usesDefaultImportAndCorrectPathForPlainType() {
+        // Endpoint returns a plain ObjectType: flat path, default export.
+        ObjectType dto = new ObjectType("UserResponse", "user", List.of());
+        Endpoint ep = makeEndpoint("UserController", "getUser", HttpMethod.GET,
+                "/api/users/{id}", dto);
+        ep.getUrlArgs().add(new Field("id", PrimitiveType.String));
+
+        TypeScriptFile dtoFile = new TypeScriptFile("types/UserResponse.ts");
+        dtoFile.setHasDefaultExport(true);
+        Map<String, TypeScriptFile> typeFiles = Map.of("UserResponse", dtoFile);
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config, typeFiles);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        TypeScriptFile file = writer.generate(ctx).get(0);
+
+        assertThat(file.getBody()).contains("import UserResponse from '../types/UserResponse';");
+    }
+
+    @Test
+    void fallsBackToLegacyFlatDefaultPathWhenTypeFilesEmpty() {
+        // When no type writer ran first (or for an unknown type name),
+        // the writer should keep the legacy `../types/<Name>` default import.
+        ObjectType dto = new ObjectType("LegacyDto", "common", List.of());
+        Endpoint ep = makeEndpoint("LegacyController", "get", HttpMethod.GET,
+                "/api/legacy", dto);
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        TypeScriptFile file = writer.generate(ctx).get(0);
+
+        assertThat(file.getBody()).contains("import LegacyDto from '../types/LegacyDto';");
+    }
 }
