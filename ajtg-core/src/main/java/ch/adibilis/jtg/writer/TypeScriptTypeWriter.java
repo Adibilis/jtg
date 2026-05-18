@@ -178,6 +178,10 @@ public class TypeScriptTypeWriter {
     private void renderImportsIntoBody(TypeScriptFile file) {
         if (file.getImports().isEmpty()) return;
 
+        // Sort by path so output is stable across runs regardless of upstream
+        // collection ordering (JVM reflection method/field order is unspecified).
+        file.getImports().sort(Comparator.comparing(TypeScriptFile.Import::path));
+
         StringBuilder importBlock = new StringBuilder();
         for (TypeScriptFile.Import imp : file.getImports()) {
             if (imp.defaultImport() != null && !imp.defaultImport().isEmpty()) {
