@@ -27,6 +27,7 @@ class TypeScriptTypeMapperTest {
     @Test void mapsDateAsDate() { assertThat(TypeScriptTypeMapper.map(PrimitiveType.Date, defaultConfig)).isEqualTo("Date"); }
     @Test void mapsDateAsString() { assertThat(TypeScriptTypeMapper.map(PrimitiveType.Date, dateAsStringConfig)).isEqualTo("string"); }
     @Test void mapsPrimitiveFile() { assertThat(TypeScriptTypeMapper.map(PrimitiveType.File, defaultConfig)).isEqualTo("File"); }
+    @Test void mapsPrimitiveUnknown() { assertThat(TypeScriptTypeMapper.map(PrimitiveType.Unknown, defaultConfig)).isEqualTo("unknown"); }
 
     @Test void mapsArrayType() {
         assertThat(TypeScriptTypeMapper.map(new ArrayType(PrimitiveType.String), defaultConfig)).isEqualTo("string[]");
