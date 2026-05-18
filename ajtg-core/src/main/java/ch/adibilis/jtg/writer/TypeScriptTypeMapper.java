@@ -32,6 +32,7 @@ public final class TypeScriptTypeMapper {
             case Void -> "void";
             case Date -> config.dateAsString() ? "string" : "Date";
             case File -> "File";
+            case Unknown -> "unknown";
         };
     }
 

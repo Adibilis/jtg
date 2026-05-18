@@ -166,6 +166,7 @@ public class SpringReflectionParser {
         if (name.equals(void.class.getName()) || name.equals(Void.class.getName())) return PrimitiveType.Void;
         if (DATE_TYPES.contains(name)) return PrimitiveType.Date;
         if (name.equals(MULTIPART_FILE)) return PrimitiveType.File;
+        if (name.equals(Object.class.getName())) return PrimitiveType.Unknown;
         return null;
     }
 
