@@ -52,6 +52,7 @@ class SpringReflectionParserTypeTest {
     @Test void parsesLocalDate() { assertThat(parser.resolveType(LocalDate.class)).isEqualTo(PrimitiveType.Date); }
     @Test void parsesLocalDateTime() { assertThat(parser.resolveType(LocalDateTime.class)).isEqualTo(PrimitiveType.Date); }
     @Test void parsesInstant() { assertThat(parser.resolveType(Instant.class)).isEqualTo(PrimitiveType.Date); }
+    @Test void parsesObjectAsUnknown() { assertThat(parser.resolveType(Object.class)).isEqualTo(PrimitiveType.Unknown); }
 
     // --- Arrays ---
 

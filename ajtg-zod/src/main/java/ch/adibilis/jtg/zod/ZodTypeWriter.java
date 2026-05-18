@@ -166,6 +166,7 @@ public class ZodTypeWriter implements Writer {
             case Boolean -> "z.boolean()";
             case File -> "z.instanceof(File)";
             case Void -> "z.void()";
+            case Unknown -> "z.unknown()";
         };
     }
 
@@ -178,6 +179,7 @@ public class ZodTypeWriter implements Writer {
             case Boolean -> "z.boolean()";
             case File -> "z.instanceof(File)";
             case Void -> "z.void()";
+            case Unknown -> "z.unknown()";
         };
     }
 

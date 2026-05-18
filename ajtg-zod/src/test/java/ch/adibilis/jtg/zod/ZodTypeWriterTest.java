@@ -164,6 +164,24 @@ class ZodTypeWriterTest {
     }
 
     @Test
+    void mapsUnknownPrimitive() {
+        ObjectType obj = new ObjectType("Form", "common", List.of());
+        obj.setFields(List.of(
+                new Field("name", PrimitiveType.String, true, List.of(new Validation.NotBlank(""))),
+                new Field("payload", PrimitiveType.Unknown, true, List.of()),
+                new Field("items", new ArrayType(PrimitiveType.Unknown), true, List.of())
+        ));
+
+        Map<String, Type> types = new LinkedHashMap<>();
+        types.put("Form", obj);
+        GeneratorContext ctx = new GeneratorContext(List.of(), types, config);
+
+        TypeScriptFile file = new ZodTypeWriter().generate(ctx).getFirst();
+        assertThat(file.getBody()).contains("payload: z.unknown()");
+        assertThat(file.getBody()).contains("items: z.array(z.unknown())");
+    }
+
+    @Test
     void handlesTypesTrue() {
         assertThat(new ZodTypeWriter().handlesTypes()).isTrue();
     }
