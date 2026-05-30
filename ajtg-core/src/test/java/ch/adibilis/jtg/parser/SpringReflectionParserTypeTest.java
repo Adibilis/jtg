@@ -98,6 +98,25 @@ class SpringReflectionParserTypeTest {
         assertThat(obj.getFields().get(2).type()).isEqualTo(PrimitiveType.Boolean);
     }
 
+    // A DTO field of type java.lang.Object must resolve to Unknown, and Object must NOT
+    // leak into the named-type cache — otherwise the writer emits an empty `Object.ts`
+    // (`export default interface Object {}`), which trips no-empty-object-type downstream.
+    // Regression guard for the bug that shipped in 1.0.8/1.0.9 (parser fix existed but the
+    // emission gap was never asserted end-to-end).
+    @Test
+    void objectFieldResolvesToUnknownAndEmitsNoObjectType() {
+        Type result = parser.resolveType(ObjectFieldDto.class);
+        assertThat(result).isInstanceOf(ObjectType.class);
+        ObjectType obj = (ObjectType) result;
+        assertThat(obj.getFields()).hasSize(1);
+        assertThat(obj.getFields().get(0).name()).isEqualTo("value");
+        assertThat(obj.getFields().get(0).type()).isEqualTo(PrimitiveType.Unknown);
+
+        assertThat(parser.getNamedTypes()).doesNotContainKey(Object.class.getName());
+        assertThat(parser.getNamedTypes().values())
+                .noneMatch(t -> t instanceof ObjectType o && o.getName().equals("Object"));
+    }
+
     // --- Generic ObjectType ---
 
     @Test
