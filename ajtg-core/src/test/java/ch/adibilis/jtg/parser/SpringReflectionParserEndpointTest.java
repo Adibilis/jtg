@@ -175,4 +175,88 @@ class SpringReflectionParserEndpointTest {
         assertThat(paged.getParams()).hasSize(1);
         assertThat(paged.getParams().get(0).name()).isEqualTo("filter");
     }
+
+    // --- @RequestHeader ---
+
+    @Test
+    void parsesRequestHeaderWithConstantValueAsRequiredHeaderParam() {
+        List<Endpoint> endpoints = parser.parseController(TestReplaceController.class);
+        Endpoint replace = endpoints.stream()
+                .filter(e -> e.getMethodName().equals("replace"))
+                .findFirst().orElseThrow();
+
+        assertThat(replace.getHeaders()).hasSize(1);
+        HeaderParam header = replace.getHeaders().get(0);
+        assertThat(header.field().name()).isEqualTo("ifMatch");
+        assertThat(header.headerName()).isEqualTo("If-Match");
+        assertThat(header.field().required()).isTrue();
+
+        // Must NOT also be emitted as a query param (the bug this fixes).
+        assertThat(replace.getParams()).isEmpty();
+        assertThat(replace.getUrlArgs()).hasSize(1);
+        assertThat(replace.getBody()).isNotNull();
+    }
+
+    @Test
+    void parsesOptionalRequestHeader() {
+        List<Endpoint> endpoints = parser.parseController(TestReplaceController.class);
+        Endpoint ep = endpoints.stream()
+                .filter(e -> e.getMethodName().equals("getWithOptionalHeader"))
+                .findFirst().orElseThrow();
+
+        assertThat(ep.getHeaders()).hasSize(1);
+        HeaderParam header = ep.getHeaders().get(0);
+        assertThat(header.field().name()).isEqualTo("traceId");
+        assertThat(header.headerName()).isEqualTo("X-Trace-Id");
+        assertThat(header.field().required()).isFalse();
+        assertThat(ep.getParams()).isEmpty();
+    }
+
+    @Test
+    void parsesRequestHeaderAlongsideQueryParam() {
+        List<Endpoint> endpoints = parser.parseController(TestReplaceController.class);
+        Endpoint ep = endpoints.stream()
+                .filter(e -> e.getMethodName().equals("search"))
+                .findFirst().orElseThrow();
+
+        assertThat(ep.getParams()).hasSize(1);
+        assertThat(ep.getParams().get(0).name()).isEqualTo("filter");
+
+        assertThat(ep.getHeaders()).hasSize(1);
+        assertThat(ep.getHeaders().get(0).field().name()).isEqualTo("apiVersion");
+        assertThat(ep.getHeaders().get(0).headerName()).isEqualTo("X-Api-Version");
+    }
+
+    // --- ResponseEntity<T> detection (drives the "…WithResponse" ETag variant) ---
+
+    @Test
+    void marksParameterizedResponseEntityReturnForResponseVariant() {
+        List<Endpoint> endpoints = parser.parseController(TestReplaceController.class);
+        Endpoint replace = endpoints.stream()
+                .filter(e -> e.getMethodName().equals("replace"))
+                .findFirst().orElseThrow();
+
+        assertThat(replace.isResponseEntity()).isTrue();
+        assertThat(replace.getReturnType()).isInstanceOf(ObjectType.class);
+    }
+
+    @Test
+    void plainReturnTypeIsNotMarkedAsResponseEntity() {
+        List<Endpoint> endpoints = parser.parseController(TestUserController.class);
+        Endpoint get = endpoints.stream()
+                .filter(e -> e.getMethodName().equals("getUser"))
+                .findFirst().orElseThrow();
+
+        assertThat(get.isResponseEntity()).isFalse();
+    }
+
+    @Test
+    void rawUnparameterizedResponseEntityIsNotMarkedAsResponseEntity() {
+        List<Endpoint> endpoints = parser.parseController(TestUserController.class);
+        Endpoint raw = endpoints.stream()
+                .filter(e -> e.getMethodName().equals("rawEntity"))
+                .findFirst().orElseThrow();
+
+        assertThat(raw.isResponseEntity()).isFalse();
+    }
 }
