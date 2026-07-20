@@ -1,5 +1,5 @@
 package ch.adibilis.jtg.model.types;
 
 public enum PrimitiveType implements Type {
-    String, Int, Double, BigInt, Boolean, Void, Date, File, Unknown
+    String, Int, Double, BigInt, Boolean, Void, Date, LocalDate, File, Unknown
 }

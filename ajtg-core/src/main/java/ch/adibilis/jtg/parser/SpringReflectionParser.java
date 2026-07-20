@@ -54,8 +54,14 @@ public class SpringReflectionParser {
     );
 
     private static final Set<String> DATE_TYPES = Set.of(
-            Date.class.getName(), LocalDate.class.getName(),
-            LocalDateTime.class.getName(), Instant.class.getName()
+            Date.class.getName(), LocalDateTime.class.getName(), Instant.class.getName()
+    );
+
+    // LocalDate is date-only and serializes as yyyy-MM-dd, unlike the timestamp types above
+    // (which serialize via Date.toISOString()) — kept as its own PrimitiveType so the Angular
+    // writer can tell them apart.
+    private static final Set<String> LOCAL_DATE_TYPES = Set.of(
+            LocalDate.class.getName()
     );
 
     private static final Set<String> LIST_TYPES = Set.of(
@@ -166,6 +172,7 @@ public class SpringReflectionParser {
         if (name.equals(boolean.class.getName()) || name.equals(Boolean.class.getName())) return PrimitiveType.Boolean;
         if (name.equals(void.class.getName()) || name.equals(Void.class.getName())) return PrimitiveType.Void;
         if (DATE_TYPES.contains(name)) return PrimitiveType.Date;
+        if (LOCAL_DATE_TYPES.contains(name)) return PrimitiveType.LocalDate;
         if (name.equals(MULTIPART_FILE)) return PrimitiveType.File;
         if (name.equals(Object.class.getName())) return PrimitiveType.Unknown;
         return null;

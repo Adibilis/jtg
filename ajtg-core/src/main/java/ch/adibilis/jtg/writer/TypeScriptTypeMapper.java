@@ -30,7 +30,9 @@ public final class TypeScriptTypeMapper {
             case String -> "string";
             case Boolean -> "boolean";
             case Void -> "void";
-            case Date -> config.dateAsString() ? "string" : "Date";
+            // LocalDate keeps the same TS type as Date ("Date") — only serialization differs,
+            // handled by the Angular writer's formatLocalDate helper, not here.
+            case Date, LocalDate -> config.dateAsString() ? "string" : "Date";
             case File -> "File";
             case Unknown -> "unknown";
         };

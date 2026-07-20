@@ -6,6 +6,9 @@ import ch.adibilis.jtg.model.types.*;
 import ch.adibilis.jtg.writer.*;
 
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 public class AngularServiceWriter implements Writer {
 
@@ -26,7 +29,12 @@ public class AngularServiceWriter implements Writer {
         }
 
         boolean anyQueryParams = context.endpoints().stream().anyMatch(ep -> !ep.getParams().isEmpty());
-        if (anyQueryParams) {
+        // A LocalDate can also appear as a path variable with no query params on the endpoint
+        // at all — the shared utils file (and its formatLocalDate export) still has to exist.
+        boolean anyLocalDate = context.endpoints().stream()
+                .flatMap(ep -> Stream.concat(ep.getParams().stream(), ep.getUrlArgs().stream()))
+                .anyMatch(f -> isLocalDateType(f.type()));
+        if (anyQueryParams || anyLocalDate) {
             files.add(buildHttpParamsUtilFile(context.config()));
         }
 
@@ -53,10 +61,24 @@ public class AngularServiceWriter implements Writer {
         body.append("        }\n");
         body.append("    }\n");
         body.append("    return params;\n");
+        body.append("}\n\n");
+
+        // LocalDate (date-only) must not go through toHttpParams' generic Date ->
+        // toISOString() path — a backend @DateTimeFormat(iso = ISO.DATE) LocalDate rejects a
+        // full timestamp. Values are pre-formatted date-only before being handed to toHttpParams.
+        body.append("export function formatLocalDate(d?: Date | null): string | undefined {\n");
+        body.append("    return d == null ? undefined : d.toISOString().slice(0, 10);\n");
         body.append("}\n");
 
         file.setBody(body.toString());
         return file;
+    }
+
+    private boolean isLocalDateType(Type type) {
+        if (type instanceof OptionalType o) {
+            return isLocalDateType(o.subType());
+        }
+        return type == PrimitiveType.LocalDate;
     }
 
     private TypeScriptFile generateService(String controllerName, List<Endpoint> endpoints,
@@ -71,6 +93,9 @@ public class AngularServiceWriter implements Writer {
         boolean needsHeaders = endpoints.stream()
                 .anyMatch(ep -> ep.getFileParams().isEmpty() || !ep.getHeaders().isEmpty());
         boolean hasResponseVariant = endpoints.stream().anyMatch(Endpoint::isResponseEntity);
+        boolean hasLocalDate = endpoints.stream()
+                .flatMap(ep -> Stream.concat(ep.getParams().stream(), ep.getUrlArgs().stream()))
+                .anyMatch(f -> isLocalDateType(f.type()));
 
         // Collect all referenced type names for imports
         Set<String> referencedTypes = new LinkedHashSet<>();
@@ -95,10 +120,13 @@ public class AngularServiceWriter implements Writer {
         file.getImports().add(new TypeScriptFile.Import("@angular/common/http", null, httpCommonImports));
         file.getImports().add(new TypeScriptFile.Import("rxjs", null, new LinkedHashSet<>(List.of("Observable"))));
         file.getImports().add(new TypeScriptFile.Import(config.environmentImportPath(), null, new LinkedHashSet<>(List.of("environment"))));
-        if (hasParams) {
+        if (hasParams || hasLocalDate) {
             TypeScriptFile utilsStub = new TypeScriptFile(UTILS_RELATIVE_PATH);
             String utilsImportPath = file.resolveImportPath(utilsStub);
-            file.getImports().add(new TypeScriptFile.Import(utilsImportPath, null, Set.of("toHttpParams")));
+            Set<String> utilsImports = new LinkedHashSet<>();
+            if (hasLocalDate) utilsImports.add("formatLocalDate");
+            if (hasParams) utilsImports.add("toHttpParams");
+            file.getImports().add(new TypeScriptFile.Import(utilsImportPath, null, utilsImports));
         }
 
         // Add type imports. Look up each referenced type in the file map produced
@@ -294,6 +322,10 @@ public class AngularServiceWriter implements Writer {
                 // top-level query keys, so spreading it into the helper's input reproduces
                 // the same flat key set the per-field code used to build by hand.
                 entries.add("..." + param.name());
+            } else if (isLocalDateType(param.type())) {
+                // Pre-format date-only before toHttpParams' generic Date -> toISOString() path
+                // would otherwise turn it into a full timestamp the backend rejects.
+                entries.add(param.name() + ": formatLocalDate(" + param.name() + ")");
             } else {
                 entries.add(param.name());
             }
@@ -318,7 +350,29 @@ public class AngularServiceWriter implements Writer {
     }
 
     private String buildUrl(Endpoint ep) {
-        return ep.getUrl().replaceAll("\\{(\\w+)}", "\\${$1}");
+        Set<String> localDateArgs = new HashSet<>();
+        for (Field f : ep.getUrlArgs()) {
+            if (isLocalDateType(f.type())) {
+                localDateArgs.add(f.name());
+            }
+        }
+        if (localDateArgs.isEmpty()) {
+            return ep.getUrl().replaceAll("\\{(\\w+)}", "\\${$1}");
+        }
+
+        // At least one path variable is a LocalDate: it needs date-only formatting in the
+        // URL template too, so interpolation can't stay a single blanket replaceAll.
+        Matcher matcher = Pattern.compile("\\{(\\w+)}").matcher(ep.getUrl());
+        StringBuilder result = new StringBuilder();
+        while (matcher.find()) {
+            String name = matcher.group(1);
+            String replacement = localDateArgs.contains(name)
+                    ? "\\${formatLocalDate(" + name + ")}"
+                    : "\\${" + name + "}";
+            matcher.appendReplacement(result, replacement);
+        }
+        matcher.appendTail(result);
+        return result.toString();
     }
 
     private String buildOptions(Endpoint ep, boolean hasFileParams, boolean hasQueryParams, boolean hasBody,

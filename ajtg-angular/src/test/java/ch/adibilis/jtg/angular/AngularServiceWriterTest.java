@@ -223,6 +223,54 @@ class AngularServiceWriterTest {
     }
 
     @Test
+    void generatesLocalDateDateOnlySerialization() {
+        // LocalDate (date-only) must serialize as yyyy-MM-dd via formatLocalDate, while a
+        // LocalDateTime/Instant param on the same endpoint (both PrimitiveType.Date) keeps
+        // going through the generic toHttpParams Date -> toISOString() path.
+        Endpoint ep = makeEndpoint("InvoiceController", "listInvoices", HttpMethod.GET,
+                "/api/invoices", new ArrayType(new ObjectType("InvoiceResponse", "invoice", List.of())));
+        ep.getParams().add(new Field("invoiceDate", PrimitiveType.LocalDate, true));
+        ep.getParams().add(new Field("updatedAfter", PrimitiveType.Date, false));
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        List<TypeScriptFile> files = writer.generate(ctx);
+        String body = files.get(0).getBody();
+
+        // Signature type stays Date for LocalDate — only serialization changes.
+        assertThat(body).contains("listInvoices(invoiceDate: Date, updatedAfter?: Date): Observable<InvoiceResponse[]>");
+        // LocalDate is pre-formatted date-only before hitting toHttpParams.
+        assertThat(body).contains("const params = toHttpParams({ invoiceDate: formatLocalDate(invoiceDate), updatedAfter });");
+        assertThat(body).contains("import { formatLocalDate, toHttpParams } from '../utils/http-params';");
+
+        TypeScriptFile utilFile = files.stream()
+                .filter(f -> f.getRelativePath().equals("utils/http-params.ts"))
+                .findFirst().orElseThrow();
+        // formatLocalDate lives in the shared utils file, date-only slice, still ISO-based Date handling for the rest.
+        assertThat(utilFile.getBody()).contains("export function formatLocalDate(");
+        assertThat(utilFile.getBody()).contains("d.toISOString().slice(0, 10)");
+        assertThat(utilFile.getBody()).contains("value.toISOString()");
+    }
+
+    @Test
+    void generatesLocalDatePathVariableDateOnlySerialization() {
+        Endpoint ep = makeEndpoint("ScheduleController", "getSchedule", HttpMethod.GET,
+                "/api/schedule/{scheduleDate}", new ObjectType("ScheduleResponse", "schedule", List.of()));
+        ep.getUrlArgs().add(new Field("scheduleDate", PrimitiveType.LocalDate));
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        List<TypeScriptFile> files = writer.generate(ctx);
+        String body = files.get(0).getBody();
+
+        assertThat(body).contains("getSchedule(scheduleDate: Date): Observable<ScheduleResponse>");
+        assertThat(body).contains("${formatLocalDate(scheduleDate)}");
+        assertThat(body).contains("import { formatLocalDate } from '../utils/http-params';");
+    }
+
+    @Test
     void usesKebabCaseFileName() {
         Endpoint ep = makeEndpoint("MediaUploadController", "upload", HttpMethod.POST,
                 "/api/media", PrimitiveType.Void);

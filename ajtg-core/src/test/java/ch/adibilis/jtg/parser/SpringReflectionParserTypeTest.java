@@ -49,7 +49,9 @@ class SpringReflectionParserTypeTest {
     @Test void parsesVoid() { assertThat(parser.resolveType(void.class)).isEqualTo(PrimitiveType.Void); }
     @Test void parsesVoidWrapper() { assertThat(parser.resolveType(Void.class)).isEqualTo(PrimitiveType.Void); }
     @Test void parsesDate() { assertThat(parser.resolveType(Date.class)).isEqualTo(PrimitiveType.Date); }
-    @Test void parsesLocalDate() { assertThat(parser.resolveType(LocalDate.class)).isEqualTo(PrimitiveType.Date); }
+    // LocalDate is date-only and must be distinguished from Date/LocalDateTime/Instant so the
+    // Angular writer can serialize it as yyyy-MM-dd instead of a full ISO timestamp.
+    @Test void parsesLocalDateAsDistinctType() { assertThat(parser.resolveType(LocalDate.class)).isEqualTo(PrimitiveType.LocalDate); }
     @Test void parsesLocalDateTime() { assertThat(parser.resolveType(LocalDateTime.class)).isEqualTo(PrimitiveType.Date); }
     @Test void parsesInstant() { assertThat(parser.resolveType(Instant.class)).isEqualTo(PrimitiveType.Date); }
     @Test void parsesObjectAsUnknown() { assertThat(parser.resolveType(Object.class)).isEqualTo(PrimitiveType.Unknown); }
