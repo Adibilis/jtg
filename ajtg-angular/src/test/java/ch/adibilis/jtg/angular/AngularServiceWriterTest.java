@@ -271,6 +271,57 @@ class AngularServiceWriterTest {
     }
 
     @Test
+    void formatsLocalDateFieldsInsideSpreadObjectTypeQueryParam() {
+        // A LocalDate field on a spread filter DTO must be overridden date-only right after
+        // its own spread — later spreads (page) keep their key-collision semantics — while
+        // plain Date-kind and non-date fields keep riding the generic spread.
+        ObjectType filterType = new ObjectType("InvoiceFilterRequest", "invoice", List.of());
+        filterType.setFields(List.of(
+                new Field("search", PrimitiveType.String, false),
+                new Field("invoiceDateAfter", PrimitiveType.LocalDate, false),
+                new Field("invoiceDateBefore", new OptionalType(PrimitiveType.LocalDate), false),
+                new Field("updatedAfter", PrimitiveType.Date, false)));
+        ObjectType pageType = new ObjectType("PagingAndSortingRequest", "paging", List.of());
+        pageType.setFields(List.of(new Field("page", PrimitiveType.Int, false)));
+        Endpoint ep = makeEndpoint("InvoiceController", "filterInvoices", HttpMethod.GET,
+                "/api/invoices", new ArrayType(new ObjectType("InvoiceResponse", "invoice", List.of())));
+        ep.getParams().add(new Field("filter", filterType, true));
+        ep.getParams().add(new Field("page", pageType, false));
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        List<TypeScriptFile> files = writer.generate(ctx);
+        String body = files.get(0).getBody();
+
+        assertThat(body).contains("const params = toHttpParams({ ...filter, "
+                + "invoiceDateAfter: formatLocalDate(filter.invoiceDateAfter), "
+                + "invoiceDateBefore: formatLocalDate(filter.invoiceDateBefore), "
+                + "...page });");
+        // Import gating must see LocalDate fields inside the spread DTO, not just direct params.
+        assertThat(body).contains("import { formatLocalDate, toHttpParams } from '../utils/http-params';");
+    }
+
+    @Test
+    void formatsLocalDateFieldsOfOptionalSpreadParamWithOptionalChaining() {
+        ObjectType filterType = new ObjectType("OrderFilterRequest", "order", List.of());
+        filterType.setFields(List.of(new Field("fulfillmentDateAfter", PrimitiveType.LocalDate, false)));
+        Endpoint ep = makeEndpoint("OrderController", "filterOrders", HttpMethod.GET,
+                "/api/orders", new ArrayType(new ObjectType("OrderResponse", "order", List.of())));
+        ep.getParams().add(new Field("filter", filterType, false));
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        List<TypeScriptFile> files = writer.generate(ctx);
+        String body = files.get(0).getBody();
+
+        // Spreading undefined is legal, but a bare member access on it is not.
+        assertThat(body).contains(
+                "const params = toHttpParams({ ...filter, fulfillmentDateAfter: formatLocalDate(filter?.fulfillmentDateAfter) });");
+    }
+
+    @Test
     void usesKebabCaseFileName() {
         Endpoint ep = makeEndpoint("MediaUploadController", "upload", HttpMethod.POST,
                 "/api/media", PrimitiveType.Void);

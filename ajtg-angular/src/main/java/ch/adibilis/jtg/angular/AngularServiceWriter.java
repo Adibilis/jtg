@@ -33,7 +33,7 @@ public class AngularServiceWriter implements Writer {
         // at all — the shared utils file (and its formatLocalDate export) still has to exist.
         boolean anyLocalDate = context.endpoints().stream()
                 .flatMap(ep -> Stream.concat(ep.getParams().stream(), ep.getUrlArgs().stream()))
-                .anyMatch(f -> isLocalDateType(f.type()));
+                .anyMatch(this::needsLocalDateFormatting);
         if (anyQueryParams || anyLocalDate) {
             files.add(buildHttpParamsUtilFile(context.config()));
         }
@@ -81,6 +81,16 @@ public class AngularServiceWriter implements Writer {
         return type == PrimitiveType.LocalDate;
     }
 
+    private boolean needsLocalDateFormatting(Field f) {
+        if (isLocalDateType(f.type())) {
+            return true;
+        }
+        // A spread ObjectType query param needs formatting when any of its own fields is a
+        // LocalDate (buildParamsCall emits per-field overrides for them).
+        return f.type() instanceof ObjectType o
+                && o.getFields().stream().anyMatch(sub -> isLocalDateType(sub.type()));
+    }
+
     private TypeScriptFile generateService(String controllerName, List<Endpoint> endpoints,
                                             GeneratorContext context) {
         GeneratorConfig config = context.config();
@@ -95,7 +105,7 @@ public class AngularServiceWriter implements Writer {
         boolean hasResponseVariant = endpoints.stream().anyMatch(Endpoint::isResponseEntity);
         boolean hasLocalDate = endpoints.stream()
                 .flatMap(ep -> Stream.concat(ep.getParams().stream(), ep.getUrlArgs().stream()))
-                .anyMatch(f -> isLocalDateType(f.type()));
+                .anyMatch(this::needsLocalDateFormatting);
 
         // Collect all referenced type names for imports
         Set<String> referencedTypes = new LinkedHashSet<>();
@@ -317,11 +327,21 @@ public class AngularServiceWriter implements Writer {
     private String buildParamsCall(List<Field> params) {
         List<String> entries = new ArrayList<>();
         for (Field param : params) {
-            if (param.type() instanceof ObjectType) {
+            if (param.type() instanceof ObjectType o) {
                 // Spring @ModelAttribute-style expansion: the object's own fields become
                 // top-level query keys, so spreading it into the helper's input reproduces
                 // the same flat key set the per-field code used to build by hand.
                 entries.add("..." + param.name());
+                // A LocalDate field of the spread DTO would otherwise ride toHttpParams'
+                // generic Date -> toISOString() path as a full timestamp. Override it
+                // date-only immediately after its own spread, so a later spread keeps
+                // winning key collisions exactly as before.
+                String accessor = param.name() + (param.required() ? "." : "?.");
+                for (Field field : o.getFields()) {
+                    if (isLocalDateType(field.type())) {
+                        entries.add(field.name() + ": formatLocalDate(" + accessor + field.name() + ")");
+                    }
+                }
             } else if (isLocalDateType(param.type())) {
                 // Pre-format date-only before toHttpParams' generic Date -> toISOString() path
                 // would otherwise turn it into a full timestamp the backend rejects.
