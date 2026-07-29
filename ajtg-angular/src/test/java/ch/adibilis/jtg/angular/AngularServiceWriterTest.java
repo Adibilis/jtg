@@ -107,10 +107,62 @@ class AngularServiceWriterTest {
         List<TypeScriptFile> files = writer.generate(ctx);
 
         String body = files.get(0).getBody();
-        assertThat(body).contains("let params = new HttpParams();");
-        assertThat(body).contains("params = params.append('filter', filter);");
-        assertThat(body).contains("if (sort)");
-        assertThat(body).contains("params = params.append('sort', sort);");
+        assertThat(body).contains("const params = toHttpParams({ filter, sort });");
+        assertThat(body).contains("import { toHttpParams } from '../utils/http-params';");
+    }
+
+    @Test
+    void spreadsObjectTypeQueryParamIntoToHttpParams() {
+        ObjectType filterType = new ObjectType("ContactFilterRequest", "contact", List.of());
+        filterType.setFields(List.of(new Field("search", PrimitiveType.String, false)));
+        Endpoint ep = makeEndpoint("ContactController", "search", HttpMethod.GET,
+                "/api/contact", new ArrayType(new ObjectType("ContactResponse", "contact", List.of())));
+        ep.getParams().add(new Field("filter", filterType, true));
+        ep.getParams().add(new Field("sort", PrimitiveType.String, false));
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        List<TypeScriptFile> files = writer.generate(ctx);
+
+        String body = files.get(0).getBody();
+        assertThat(body).contains("const params = toHttpParams({ ...filter, sort });");
+    }
+
+    @Test
+    void emitsSharedHttpParamsUtilFileWhenAnyEndpointHasQueryParams() {
+        Endpoint ep = makeEndpoint("UserController", "listUsers", HttpMethod.GET,
+                "/api/users", new ArrayType(new ObjectType("UserResponse", "user", List.of())));
+        ep.getParams().add(new Field("filter", PrimitiveType.String, true));
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        List<TypeScriptFile> files = writer.generate(ctx);
+
+        TypeScriptFile utilFile = files.stream()
+                .filter(f -> f.getRelativePath().equals("utils/http-params.ts"))
+                .findFirst().orElseThrow();
+
+        assertThat(utilFile.getBody()).contains("export function toHttpParams(obj: Record<string, unknown>): HttpParams");
+        assertThat(utilFile.getBody()).contains("if (value === null || value === undefined) continue;");
+        assertThat(utilFile.getBody()).contains("value instanceof Date");
+        assertThat(utilFile.getBody()).contains("Array.isArray(value)");
+    }
+
+    @Test
+    void doesNotEmitHttpParamsUtilFileWhenNoEndpointHasQueryParams() {
+        Endpoint ep = makeEndpoint("UserController", "getUser", HttpMethod.GET,
+                "/api/users/{id}", new ObjectType("UserResponse", "user", List.of()));
+        ep.getUrlArgs().add(new Field("id", PrimitiveType.String));
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        List<TypeScriptFile> files = writer.generate(ctx);
+
+        assertThat(files).extracting(TypeScriptFile::getRelativePath)
+                .doesNotContain("utils/http-params.ts");
     }
 
     @Test
@@ -160,8 +212,113 @@ class AngularServiceWriterTest {
         AngularServiceWriter writer = new AngularServiceWriter();
         List<TypeScriptFile> files = writer.generate(ctx);
 
+        // ISO serialization is centralized in the shared toHttpParams helper, not the call site.
         String body = files.get(0).getBody();
-        assertThat(body).contains("after.toISOString()");
+        assertThat(body).contains("const params = toHttpParams({ after });");
+
+        TypeScriptFile utilFile = files.stream()
+                .filter(f -> f.getRelativePath().equals("utils/http-params.ts"))
+                .findFirst().orElseThrow();
+        assertThat(utilFile.getBody()).contains("value.toISOString()");
+    }
+
+    @Test
+    void generatesLocalDateDateOnlySerialization() {
+        // LocalDate (date-only) must serialize as yyyy-MM-dd via formatLocalDate, while a
+        // LocalDateTime/Instant param on the same endpoint (both PrimitiveType.Date) keeps
+        // going through the generic toHttpParams Date -> toISOString() path.
+        Endpoint ep = makeEndpoint("InvoiceController", "listInvoices", HttpMethod.GET,
+                "/api/invoices", new ArrayType(new ObjectType("InvoiceResponse", "invoice", List.of())));
+        ep.getParams().add(new Field("invoiceDate", PrimitiveType.LocalDate, true));
+        ep.getParams().add(new Field("updatedAfter", PrimitiveType.Date, false));
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        List<TypeScriptFile> files = writer.generate(ctx);
+        String body = files.get(0).getBody();
+
+        // Signature type stays Date for LocalDate — only serialization changes.
+        assertThat(body).contains("listInvoices(invoiceDate: Date, updatedAfter?: Date): Observable<InvoiceResponse[]>");
+        // LocalDate is pre-formatted date-only before hitting toHttpParams.
+        assertThat(body).contains("const params = toHttpParams({ invoiceDate: formatLocalDate(invoiceDate), updatedAfter });");
+        assertThat(body).contains("import { formatLocalDate, toHttpParams } from '../utils/http-params';");
+
+        TypeScriptFile utilFile = files.stream()
+                .filter(f -> f.getRelativePath().equals("utils/http-params.ts"))
+                .findFirst().orElseThrow();
+        // formatLocalDate lives in the shared utils file, date-only slice, still ISO-based Date handling for the rest.
+        assertThat(utilFile.getBody()).contains("export function formatLocalDate(");
+        assertThat(utilFile.getBody()).contains("d.toISOString().slice(0, 10)");
+        assertThat(utilFile.getBody()).contains("value.toISOString()");
+    }
+
+    @Test
+    void generatesLocalDatePathVariableDateOnlySerialization() {
+        Endpoint ep = makeEndpoint("ScheduleController", "getSchedule", HttpMethod.GET,
+                "/api/schedule/{scheduleDate}", new ObjectType("ScheduleResponse", "schedule", List.of()));
+        ep.getUrlArgs().add(new Field("scheduleDate", PrimitiveType.LocalDate));
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        List<TypeScriptFile> files = writer.generate(ctx);
+        String body = files.get(0).getBody();
+
+        assertThat(body).contains("getSchedule(scheduleDate: Date): Observable<ScheduleResponse>");
+        assertThat(body).contains("${formatLocalDate(scheduleDate)}");
+        assertThat(body).contains("import { formatLocalDate } from '../utils/http-params';");
+    }
+
+    @Test
+    void formatsLocalDateFieldsInsideSpreadObjectTypeQueryParam() {
+        // A LocalDate field on a spread filter DTO must be overridden date-only right after
+        // its own spread — later spreads (page) keep their key-collision semantics — while
+        // plain Date-kind and non-date fields keep riding the generic spread.
+        ObjectType filterType = new ObjectType("InvoiceFilterRequest", "invoice", List.of());
+        filterType.setFields(List.of(
+                new Field("search", PrimitiveType.String, false),
+                new Field("invoiceDateAfter", PrimitiveType.LocalDate, false),
+                new Field("invoiceDateBefore", new OptionalType(PrimitiveType.LocalDate), false),
+                new Field("updatedAfter", PrimitiveType.Date, false)));
+        ObjectType pageType = new ObjectType("PagingAndSortingRequest", "paging", List.of());
+        pageType.setFields(List.of(new Field("page", PrimitiveType.Int, false)));
+        Endpoint ep = makeEndpoint("InvoiceController", "filterInvoices", HttpMethod.GET,
+                "/api/invoices", new ArrayType(new ObjectType("InvoiceResponse", "invoice", List.of())));
+        ep.getParams().add(new Field("filter", filterType, true));
+        ep.getParams().add(new Field("page", pageType, false));
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        List<TypeScriptFile> files = writer.generate(ctx);
+        String body = files.get(0).getBody();
+
+        assertThat(body).contains("const params = toHttpParams({ ...filter, "
+                + "invoiceDateAfter: formatLocalDate(filter.invoiceDateAfter), "
+                + "invoiceDateBefore: formatLocalDate(filter.invoiceDateBefore), "
+                + "...page });");
+        // Import gating must see LocalDate fields inside the spread DTO, not just direct params.
+        assertThat(body).contains("import { formatLocalDate, toHttpParams } from '../utils/http-params';");
+    }
+
+    @Test
+    void formatsLocalDateFieldsOfOptionalSpreadParamWithOptionalChaining() {
+        ObjectType filterType = new ObjectType("OrderFilterRequest", "order", List.of());
+        filterType.setFields(List.of(new Field("fulfillmentDateAfter", PrimitiveType.LocalDate, false)));
+        Endpoint ep = makeEndpoint("OrderController", "filterOrders", HttpMethod.GET,
+                "/api/orders", new ArrayType(new ObjectType("OrderResponse", "order", List.of())));
+        ep.getParams().add(new Field("filter", filterType, false));
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        List<TypeScriptFile> files = writer.generate(ctx);
+        String body = files.get(0).getBody();
+
+        // Spreading undefined is legal, but a bare member access on it is not.
+        assertThat(body).contains(
+                "const params = toHttpParams({ ...filter, fulfillmentDateAfter: formatLocalDate(filter?.fulfillmentDateAfter) });");
     }
 
     @Test
@@ -196,7 +353,7 @@ class AngularServiceWriterTest {
     }
 
     @Test
-    void generatesArrayParamWithReduce() {
+    void generatesArrayParamViaToHttpParams() {
         Endpoint ep = makeEndpoint("SearchController", "search", HttpMethod.GET,
                 "/api/search", PrimitiveType.String);
         ep.getParams().add(new Field("tags", new ArrayType(PrimitiveType.String), true));
@@ -207,8 +364,90 @@ class AngularServiceWriterTest {
         List<TypeScriptFile> files = writer.generate(ctx);
 
         String body = files.get(0).getBody();
-        assertThat(body).contains(".reduce(");
-        assertThat(body).contains("p.append('tags', item)");
+        assertThat(body).contains("const params = toHttpParams({ tags });");
+
+        // Array-join semantics live in the shared helper, not the call site.
+        TypeScriptFile utilFile = files.stream()
+                .filter(f -> f.getRelativePath().equals("utils/http-params.ts"))
+                .findFirst().orElseThrow();
+        assertThat(utilFile.getBody()).contains("Array.isArray(value)");
+    }
+
+    // --- @RequestHeader ---
+
+    @Test
+    void generatesRequiredHeaderParam() {
+        Endpoint ep = makeEndpoint("ContactController", "replace", HttpMethod.PUT,
+                "/api/contact/{contactId}", new ObjectType("ContactResponse", "contact", List.of()));
+        ep.getUrlArgs().add(new Field("contactId", PrimitiveType.Int));
+        ep.setBody(new ObjectType("ContactRequest", "contact", List.of()));
+        ep.getHeaders().add(new HeaderParam(new Field("ifMatch", PrimitiveType.String, true), "If-Match"));
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        String body = writer.generate(ctx).get(0).getBody();
+
+        assertThat(body).contains("replace(body: ContactRequest, contactId: number, ifMatch: string): Observable<ContactResponse>");
+        assertThat(body).contains("const requestHeaders: Record<string, string> = { ...headers };");
+        assertThat(body).contains("requestHeaders['If-Match'] = ifMatch;");
+        assertThat(body).contains("{ headers: requestHeaders }");
+    }
+
+    @Test
+    void generatesOptionalHeaderParam() {
+        Endpoint ep = makeEndpoint("UserController", "getUser", HttpMethod.GET,
+                "/api/users/{id}", new ObjectType("UserResponse", "user", List.of()));
+        ep.getUrlArgs().add(new Field("id", PrimitiveType.String));
+        ep.getHeaders().add(new HeaderParam(new Field("traceId", PrimitiveType.String, false), "X-Trace-Id"));
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        String body = writer.generate(ctx).get(0).getBody();
+
+        assertThat(body).contains("getUser(id: string, traceId?: string): Observable<UserResponse>");
+        assertThat(body).contains("if (traceId) {");
+        assertThat(body).contains("requestHeaders['X-Trace-Id'] = traceId;");
+    }
+
+    // --- ResponseEntity<T> "…WithResponse" ETag variant ---
+
+    @Test
+    void generatesWithResponseVariantForResponseEntityEndpoint() {
+        Endpoint ep = makeEndpoint("ContactController", "replace", HttpMethod.PUT,
+                "/api/contact/{contactId}", new ObjectType("ContactResponse", "contact", List.of()));
+        ep.getUrlArgs().add(new Field("contactId", PrimitiveType.Int));
+        ep.setBody(new ObjectType("ContactRequest", "contact", List.of()));
+        ep.getHeaders().add(new HeaderParam(new Field("ifMatch", PrimitiveType.String, true), "If-Match"));
+        ep.setResponseEntity(true);
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        String body = writer.generate(ctx).get(0).getBody();
+
+        // Plain method still present, unwrapped return type, unbroken.
+        assertThat(body).contains("replace(body: ContactRequest, contactId: number, ifMatch: string): Observable<ContactResponse>");
+        // New response-observing variant.
+        assertThat(body).contains("replaceWithResponse(body: ContactRequest, contactId: number, ifMatch: string): Observable<HttpResponse<ContactResponse>>");
+        assertThat(body).contains("observe: 'response'");
+        assertThat(body).contains("import { HttpClient, HttpResponse } from '@angular/common/http';");
+    }
+
+    @Test
+    void doesNotGenerateWithResponseVariantWhenNotResponseEntity() {
+        Endpoint ep = makeEndpoint("UserController", "getUser", HttpMethod.GET,
+                "/api/users/{id}", new ObjectType("UserResponse", "user", List.of()));
+        ep.getUrlArgs().add(new Field("id", PrimitiveType.String));
+
+        GeneratorContext ctx = new GeneratorContext(List.of(ep), Map.of(), config);
+
+        AngularServiceWriter writer = new AngularServiceWriter();
+        String body = writer.generate(ctx).get(0).getBody();
+
+        assertThat(body).doesNotContain("WithResponse");
+        assertThat(body).doesNotContain("HttpResponse");
     }
 
     @Test

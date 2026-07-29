@@ -62,6 +62,31 @@ class ZodTypeWriterTest {
     }
 
     @Test
+    void mapsLocalDateFieldLikeDateToZodString() {
+        // LocalDate is TS-typed the same as Date; Zod has no date-only primitive so it
+        // continues to validate as a plain string, same as Date/LocalDateTime/Instant.
+        ObjectType obj = new ObjectType("InvoiceForm", "invoice", List.of());
+        obj.setFields(List.of(
+                new Field("dueDate", PrimitiveType.LocalDate, true, List.of(
+                        new Validation.NotBlank("")
+                ))
+        ));
+
+        Map<String, Type> types = new LinkedHashMap<>();
+        types.put("InvoiceForm", obj);
+        GeneratorContext ctx = new GeneratorContext(List.of(), types, config);
+
+        ZodTypeWriter writer = new ZodTypeWriter();
+        List<TypeScriptFile> files = writer.generate(ctx);
+
+        TypeScriptFile file = files.stream()
+                .filter(f -> f.getRelativePath().contains("InvoiceForm"))
+                .findFirst().orElseThrow();
+
+        assertThat(file.getBody()).contains("dueDate: z.string().regex(/.+/)");
+    }
+
+    @Test
     void delegatesNonValidatedTypesToPlainTypeScript() {
         ObjectType plain = new ObjectType("PlainDto", "common", List.of());
         plain.setFields(List.of(

@@ -2,6 +2,7 @@ package ch.adibilis.jtg.parser;
 
 import ch.adibilis.jtg.config.GeneratorConfig;
 import ch.adibilis.jtg.model.endpoints.Endpoint;
+import ch.adibilis.jtg.model.endpoints.HeaderParam;
 import ch.adibilis.jtg.model.endpoints.HttpMethod;
 import ch.adibilis.jtg.model.endpoints.PagedEndpoint;
 import ch.adibilis.jtg.model.types.*;
@@ -53,8 +54,14 @@ public class SpringReflectionParser {
     );
 
     private static final Set<String> DATE_TYPES = Set.of(
-            Date.class.getName(), LocalDate.class.getName(),
-            LocalDateTime.class.getName(), Instant.class.getName()
+            Date.class.getName(), LocalDateTime.class.getName(), Instant.class.getName()
+    );
+
+    // LocalDate is date-only and serializes as yyyy-MM-dd, unlike the timestamp types above
+    // (which serialize via Date.toISOString()) — kept as its own PrimitiveType so the Angular
+    // writer can tell them apart.
+    private static final Set<String> LOCAL_DATE_TYPES = Set.of(
+            LocalDate.class.getName()
     );
 
     private static final Set<String> LIST_TYPES = Set.of(
@@ -165,6 +172,7 @@ public class SpringReflectionParser {
         if (name.equals(boolean.class.getName()) || name.equals(Boolean.class.getName())) return PrimitiveType.Boolean;
         if (name.equals(void.class.getName()) || name.equals(Void.class.getName())) return PrimitiveType.Void;
         if (DATE_TYPES.contains(name)) return PrimitiveType.Date;
+        if (LOCAL_DATE_TYPES.contains(name)) return PrimitiveType.LocalDate;
         if (name.equals(MULTIPART_FILE)) return PrimitiveType.File;
         if (name.equals(Object.class.getName())) return PrimitiveType.Unknown;
         return null;
@@ -501,6 +509,7 @@ public class SpringReflectionParser {
                 // Return type
                 java.lang.reflect.Type returnType = method.getGenericReturnType();
                 endpoint.setReturnType(resolveReturnType(returnType));
+                endpoint.setResponseEntity(isParameterizedResponseEntity(returnType));
 
                 // Parameters
                 parseParameters(method, endpoint);
@@ -510,6 +519,17 @@ public class SpringReflectionParser {
         }
 
         return endpoints;
+    }
+
+    // Only a genuinely parameterized ResponseEntity<T> is eligible for the "…WithResponse"
+    // ETag/header-observing variant — a raw, un-parameterized ResponseEntity carries no
+    // reliable payload type and is already treated as PrimitiveType.Void by resolveReturnType.
+    private boolean isParameterizedResponseEntity(java.lang.reflect.Type returnType) {
+        if (returnType instanceof ParameterizedType pt) {
+            Class<?> raw = (Class<?>) pt.getRawType();
+            return RESPONSE_ENTITY_TYPES.contains(raw.getName());
+        }
+        return false;
     }
 
     private Type resolveReturnType(java.lang.reflect.Type returnType) {
@@ -582,6 +602,14 @@ public class SpringReflectionParser {
                     endpoint.setBody(resolveType(genericTypes[i]));
                     handled = true;
                     break;
+                } else if (ann instanceof RequestHeader rh) {
+                    String headerName = !rh.name().isEmpty() ? rh.name()
+                            : !rh.value().isEmpty() ? rh.value() : paramName;
+                    Type resolvedType = resolveType(genericTypes[i]);
+                    endpoint.getHeaders().add(new HeaderParam(
+                            new Field(paramName, resolvedType, rh.required()), headerName));
+                    handled = true;
+                    break;
                 } else if (ann instanceof RequestParam rp) {
                     Type resolvedType = resolveType(genericTypes[i]);
                     if (resolvedType == PrimitiveType.File) {
@@ -611,6 +639,7 @@ public class SpringReflectionParser {
         for (Annotation ann : annotations) {
             if (ann instanceof RequestParam || ann instanceof PathVariable ||
                 ann instanceof RequestBody || ann instanceof RequestPart ||
+                ann instanceof RequestHeader ||
                 ann instanceof PageParam || ann instanceof PageSizeParam) {
                 return true;
             }

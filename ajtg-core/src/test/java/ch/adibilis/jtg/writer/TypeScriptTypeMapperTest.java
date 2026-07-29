@@ -26,6 +26,10 @@ class TypeScriptTypeMapperTest {
     @Test void mapsPrimitiveVoid() { assertThat(TypeScriptTypeMapper.map(PrimitiveType.Void, defaultConfig)).isEqualTo("void"); }
     @Test void mapsDateAsDate() { assertThat(TypeScriptTypeMapper.map(PrimitiveType.Date, defaultConfig)).isEqualTo("Date"); }
     @Test void mapsDateAsString() { assertThat(TypeScriptTypeMapper.map(PrimitiveType.Date, dateAsStringConfig)).isEqualTo("string"); }
+    // LocalDate keeps the same TS signature type as Date ("Date") — only its query/path
+    // serialization differs (date-only vs full ISO timestamp), handled by the Angular writer.
+    @Test void mapsLocalDateAsDate() { assertThat(TypeScriptTypeMapper.map(PrimitiveType.LocalDate, defaultConfig)).isEqualTo("Date"); }
+    @Test void mapsLocalDateAsString() { assertThat(TypeScriptTypeMapper.map(PrimitiveType.LocalDate, dateAsStringConfig)).isEqualTo("string"); }
     @Test void mapsPrimitiveFile() { assertThat(TypeScriptTypeMapper.map(PrimitiveType.File, defaultConfig)).isEqualTo("File"); }
     @Test void mapsPrimitiveUnknown() { assertThat(TypeScriptTypeMapper.map(PrimitiveType.Unknown, defaultConfig)).isEqualTo("unknown"); }
 

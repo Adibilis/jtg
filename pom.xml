@@ -6,7 +6,7 @@
 
     <groupId>ch.adibilis.jtg</groupId>
     <artifactId>ajtg-parent</artifactId>
-    <version>1.0.10</version>
+    <version>1.0.13</version>
     <packaging>pom</packaging>
 
     <name>AJTG - Adibilis Java Type Generator</name>
@@ -35,14 +35,6 @@
         <developerConnection>scm:git:ssh://github.com:adibilis/jtg.git</developerConnection>
         <url>https://github.com/adibilis/jtg</url>
     </scm>
-
-    <distributionManagement>
-        <repository>
-            <id>github</id>
-            <name>GitHub Packages</name>
-            <url>https://maven.pkg.github.com/adibilis/jtg</url>
-        </repository>
-    </distributionManagement>
 
     <modules>
         <module>ajtg-core</module>
@@ -168,10 +160,34 @@
                     <plugin>
                         <groupId>org.sonatype.central</groupId>
                         <artifactId>central-publishing-maven-plugin</artifactId>
-                        <version>0.7.0</version>
+                        <version>0.11.0</version>
                         <extensions>true</extensions>
                         <configuration>
                             <publishingServerId>central</publishingServerId>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- CI has no tty, so gpg must take the passphrase on stdin. Kept out of the release
+             profile on purpose: with loopback and a cold agent cache, a local signing run hangs
+             on stdin forever instead of prompting. -->
+        <profile>
+            <id>ci-sign</id>
+            <activation>
+                <property><name>env.CI</name></property>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-gpg-plugin</artifactId>
+                        <configuration>
+                            <gpgArguments>
+                                <arg>--pinentry-mode</arg>
+                                <arg>loopback</arg>
+                            </gpgArguments>
                         </configuration>
                     </plugin>
                 </plugins>

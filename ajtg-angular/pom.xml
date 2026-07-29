@@ -6,9 +6,13 @@
     <parent>
         <groupId>ch.adibilis.jtg</groupId>
         <artifactId>ajtg-parent</artifactId>
-        <version>1.0.10</version>
+        <version>1.0.13</version>
     </parent>
     <artifactId>ajtg-angular</artifactId>
+
+    <name>AJTG Angular Generator</name>
+    <description>Emits Angular TypeScript types and HttpClient services from the AJTG type model.</description>
+
     <dependencies>
         <dependency>
             <groupId>ch.adibilis.jtg</groupId>

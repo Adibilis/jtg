@@ -6,9 +6,13 @@
     <parent>
         <groupId>ch.adibilis.jtg</groupId>
         <artifactId>ajtg-parent</artifactId>
-        <version>1.0.10</version>
+        <version>1.0.13</version>
     </parent>
     <artifactId>ajtg-core</artifactId>
+
+    <name>AJTG Core</name>
+    <description>Core reflection engine for AJTG: analyses Spring REST controllers and DTOs into a language-agnostic type model.</description>
+
     <dependencies>
         <dependency>
             <groupId>org.springframework</groupId>

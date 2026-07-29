@@ -162,7 +162,7 @@ public class ZodTypeWriter implements Writer {
             case Int -> "z.number().int()";
             case Double -> "z.number()";
             case BigInt -> "z.bigint()";
-            case String, Date -> "z.string()";
+            case String, Date, LocalDate -> "z.string()";
             case Boolean -> "z.boolean()";
             case File -> "z.instanceof(File)";
             case Void -> "z.void()";
@@ -175,7 +175,7 @@ public class ZodTypeWriter implements Writer {
             case Int -> "z.number()";
             case Double -> "z.number()";
             case BigInt -> "z.bigint()";
-            case String, Date -> "z.string()";
+            case String, Date, LocalDate -> "z.string()";
             case Boolean -> "z.boolean()";
             case File -> "z.instanceof(File)";
             case Void -> "z.void()";
