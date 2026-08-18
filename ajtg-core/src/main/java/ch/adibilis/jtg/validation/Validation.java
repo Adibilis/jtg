@@ -8,6 +8,8 @@ public sealed interface Validation {
     record Max(long value, String message) implements Validation {}
     record Size(int min, int max, String message) implements Validation {}
     record NotBlank(String message) implements Validation {}
+    record NotNull(String message) implements Validation {}
+    record NotEmpty(String message) implements Validation {}
     record Pattern(String regexp, String message) implements Validation {}
     record Email(String message) implements Validation {}
 }

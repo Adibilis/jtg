@@ -387,6 +387,16 @@ public class SpringReflectionParser {
                         if (msg.startsWith("{")) msg = "";
                         validations.add(new Validation.NotBlank(msg));
                     }
+                    case "NotNull" -> {
+                        String msg = (String) ann.annotationType().getMethod("message").invoke(ann);
+                        if (msg.startsWith("{")) msg = "";
+                        validations.add(new Validation.NotNull(msg));
+                    }
+                    case "NotEmpty" -> {
+                        String msg = (String) ann.annotationType().getMethod("message").invoke(ann);
+                        if (msg.startsWith("{")) msg = "";
+                        validations.add(new Validation.NotEmpty(msg));
+                    }
                     case "Pattern" -> {
                         String regexp = (String) ann.annotationType().getMethod("regexp").invoke(ann);
                         String msg = (String) ann.annotationType().getMethod("message").invoke(ann);

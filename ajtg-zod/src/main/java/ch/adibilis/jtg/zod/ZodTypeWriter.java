@@ -4,6 +4,7 @@ import ch.adibilis.jtg.config.GeneratorConfig;
 import ch.adibilis.jtg.model.types.*;
 import ch.adibilis.jtg.validation.Validation;
 import ch.adibilis.jtg.writer.*;
+import ch.adibilis.jtg.writer.TypeScriptTypeMapper;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -36,11 +37,20 @@ public class ZodTypeWriter implements Writer {
             }
         }
 
-        // Generate Zod schemas for validated object types.
+        promoteReferencedObjects(zodObjectTypes, plainTypes);
+
+        // Generate Zod schemas for validated object types. The emitting ObjectType is
+        // kept alongside its file: namedTypes is keyed by FULLY-QUALIFIED name in the
+        // real parser (SpringReflectionParser.typeCache uses clazz.getName()), so a
+        // later simple-name lookup silently misses and cross-reference imports are
+        // never registered.
         List<TypeScriptFile> zodFiles = new ArrayList<>();
+        Map<TypeScriptFile, ObjectType> objectByFile = new LinkedHashMap<>();
         for (Map.Entry<String, Type> entry : zodObjectTypes.entrySet()) {
             if (entry.getValue() instanceof ObjectType obj) {
-                zodFiles.add(generateZodObject(obj, config));
+                TypeScriptFile file = generateZodObject(obj, config);
+                zodFiles.add(file);
+                objectByFile.put(file, obj);
             }
         }
 
@@ -63,8 +73,8 @@ public class ZodTypeWriter implements Writer {
         // registered imports into its body. Without this pass, `z` and any
         // referenced `<Name>Model` symbols would be undefined at runtime.
         for (TypeScriptFile f : zodFiles) {
-            Type sourceType = namedTypes.get(extractTypeName(f.getRelativePath()));
-            if (sourceType instanceof ObjectType obj) {
+            ObjectType obj = objectByFile.get(f);
+            if (obj != null) {
                 resolveModelImports(f, obj, zodFileByName);
             }
             renderImportsIntoBody(f);
@@ -87,6 +97,52 @@ public class ZodTypeWriter implements Writer {
         return obj.getFields().stream().anyMatch(f -> !f.validations().isEmpty());
     }
 
+    /**
+     * Moves every object type reachable from a Zod schema out of the plain-TS bucket
+     * and into the Zod bucket, transitively.
+     * <p>
+     * {@link #zodType} renders any {@code ObjectType} in field position as
+     * {@code <Name>Model}. A referenced DTO that carries no constraints of its own
+     * would otherwise be emitted as a plain interface, which declares no such symbol,
+     * so the referencing schema would not compile. Promoted types become
+     * constraint-free {@code z.object({...})} schemas. Traversal is by name so a
+     * self- or mutually-referential type terminates.
+     */
+    private void promoteReferencedObjects(Map<String, Type> zodObjectTypes, Map<String, Type> plainTypes) {
+        Map<String, String> plainKeyByName = new LinkedHashMap<>();
+        for (Map.Entry<String, Type> entry : plainTypes.entrySet()) {
+            if (entry.getValue() instanceof ObjectType obj) {
+                plainKeyByName.putIfAbsent(obj.getName(), entry.getKey());
+            }
+        }
+
+        Deque<ObjectType> pending = new ArrayDeque<>();
+        for (Type type : zodObjectTypes.values()) {
+            if (type instanceof ObjectType obj) pending.add(obj);
+        }
+
+        Set<String> visited = new HashSet<>();
+        while (!pending.isEmpty()) {
+            ObjectType current = pending.poll();
+            if (!visited.add(current.getName())) continue;
+
+            Set<String> referenced = new LinkedHashSet<>();
+            for (Field field : current.getFields()) {
+                collectObjectReferences(field.type(), referenced);
+            }
+
+            for (String name : referenced) {
+                String plainKey = plainKeyByName.get(name);
+                if (plainKey == null) continue;
+                Type promoted = plainTypes.remove(plainKey);
+                if (promoted instanceof ObjectType obj) {
+                    zodObjectTypes.put(plainKey, obj);
+                    pending.add(obj);
+                }
+            }
+        }
+    }
+
     private TypeScriptFile generateZodObject(ObjectType obj, GeneratorConfig config) {
         TypeScriptFile file = new TypeScriptFile("types/" + obj.getPackageSegment() + "/" + obj.getName() + ".ts");
         file.getImports().add(new TypeScriptFile.Import("zod", null, Set.of("z")));
@@ -94,7 +150,26 @@ public class ZodTypeWriter implements Writer {
         StringBuilder body = new StringBuilder();
         body.append(header(config)).append("\n\n");
 
-        body.append("export const ").append(obj.getName()).append("Model = z.object({\n");
+        // A schema that references itself cannot derive its type with z.infer off its own
+        // initializer (TS7022 / TS2448). Zod's idiom is z.lazy() behind an explicit
+        // z.ZodType<T>, which needs T declared up front rather than inferred.
+        boolean recursive = isSelfReferential(obj);
+
+        if (recursive) {
+            body.append("export interface ").append(obj.getName()).append(" {\n");
+            for (Field field : obj.getFields()) {
+                boolean optional = !field.required() && !hasPresenceConstraint(field);
+                body.append("    ").append(field.name()).append(optional ? "?" : "").append(": ")
+                        .append(TypeScriptTypeMapper.map(field.type(), config))
+                        .append(optional ? " | null" : "").append(";\n");
+            }
+            body.append("}\n\n");
+
+            body.append("export const ").append(obj.getName())
+                    .append("Model: z.ZodType<").append(obj.getName()).append("> = z.lazy(() => z.object({\n");
+        } else {
+            body.append("export const ").append(obj.getName()).append("Model = z.object({\n");
+        }
 
         for (Field field : obj.getFields()) {
             body.append("    ").append(field.name()).append(": ");
@@ -102,12 +177,24 @@ public class ZodTypeWriter implements Writer {
             body.append(",\n");
         }
 
-        body.append("});\n\n");
-        body.append("export type ").append(obj.getName())
-                .append(" = z.infer<typeof ").append(obj.getName()).append("Model>;\n");
+        if (recursive) {
+            body.append("}));\n");
+        } else {
+            body.append("});\n\n");
+            body.append("export type ").append(obj.getName())
+                    .append(" = z.infer<typeof ").append(obj.getName()).append("Model>;\n");
+        }
 
         file.setBody(body.toString());
         return file;
+    }
+
+    private boolean isSelfReferential(ObjectType obj) {
+        Set<String> referenced = new LinkedHashSet<>();
+        for (Field field : obj.getFields()) {
+            collectObjectReferences(field.type(), referenced);
+        }
+        return referenced.contains(obj.getName());
     }
 
     private String zodField(Field field, GeneratorConfig config) {
@@ -119,12 +206,23 @@ public class ZodTypeWriter implements Writer {
             sb.append(zodValidation(v));
         }
 
-        // Optional/nullable for non-required fields
-        if (!field.required()) {
+        // A presence constraint beats the nullability flag. Field.required() is derived
+        // from @Nullable alone, but DTOs routinely carry `@NotBlank private @Nullable
+        // String x` — @Nullable is for IDE null-analysis, the constraint is the contract.
+        // Emitting .optional() there makes the schema fail OPEN: parse({}) would succeed
+        // on a required field, since .optional() short-circuits the whole chain.
+        if (!field.required() && !hasPresenceConstraint(field)) {
             sb.append(".optional().nullable()");
         }
 
         return sb.toString();
+    }
+
+    private boolean hasPresenceConstraint(Field field) {
+        return field.validations().stream().anyMatch(v ->
+                v instanceof Validation.NotBlank
+                        || v instanceof Validation.NotNull
+                        || v instanceof Validation.NotEmpty);
     }
 
     private String zodType(Type type, GeneratorConfig config) {
@@ -187,8 +285,14 @@ public class ZodTypeWriter implements Writer {
         return switch (v) {
             case Validation.Min m -> ".min(" + m.value() + withMessage(m.message()) + ")";
             case Validation.Max m -> ".max(" + m.value() + withMessage(m.message()) + ")";
-            case Validation.Size s -> ".min(" + s.min() + ").max(" + s.max() + ")";
+            // @Size with no explicit max defaults to Integer.MAX_VALUE; emitting it
+            // as .max(2147483647) is noise that constrains nothing.
+            case Validation.Size s -> ".min(" + s.min() + ")"
+                    + (s.max() == Integer.MAX_VALUE ? "" : ".max(" + s.max() + ")");
             case Validation.NotBlank n -> ".regex(/.+/)";
+            // Presence only — the constraint is expressed by omitting .optional().
+            case Validation.NotNull n -> "";
+            case Validation.NotEmpty n -> ".min(1)";
             case Validation.Pattern p -> ".regex(/" + p.regexp() + "/)";
             case Validation.Email e -> ".email(" + messageArg(e.message()) + ")";
         };
