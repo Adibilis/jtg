@@ -293,9 +293,26 @@ public class ZodTypeWriter implements Writer {
             // Presence only — the constraint is expressed by omitting .optional().
             case Validation.NotNull n -> "";
             case Validation.NotEmpty n -> ".min(1)";
-            case Validation.Pattern p -> ".regex(/" + p.regexp() + "/)";
+            case Validation.Pattern p -> ".regex(/" + escapeSlashes(p.regexp()) + "/)";
             case Validation.Email e -> ".email(" + messageArg(e.message()) + ")";
         };
+    }
+
+    // A bare '/' ends a JS regex literal early ("^https?://" turns the rest into a comment).
+    // "\/" is a legal escape in Java and JS alike, so pairs starting with '\' are copied verbatim.
+    private String escapeSlashes(String regexp) {
+        StringBuilder out = new StringBuilder(regexp.length() + 4);
+        for (int i = 0; i < regexp.length(); i++) {
+            char c = regexp.charAt(i);
+            if (c == '\\' && i + 1 < regexp.length()) {
+                out.append(c).append(regexp.charAt(++i));
+            } else if (c == '/') {
+                out.append("\\/");
+            } else {
+                out.append(c);
+            }
+        }
+        return out.toString();
     }
 
     private String withMessage(String message) {
