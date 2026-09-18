@@ -168,6 +168,29 @@ class ZodTypeWriterTest {
     }
 
     @Test
+    void escapesSlashesInPatternSoTheRegexLiteralStaysOpen() {
+        ObjectType obj = new ObjectType("LinkForm", "common", List.of());
+        obj.setFields(List.of(
+                new Field("url", PrimitiveType.String, true, List.of(
+                        new Validation.Pattern("^https?://\\S+$", "")
+                )),
+                new Field("path", PrimitiveType.String, true, List.of(
+                        new Validation.Pattern("^a\\/b/c\\\\/d$", "")
+                ))
+        ));
+
+        Map<String, Type> types = new LinkedHashMap<>();
+        types.put("LinkForm", obj);
+        GeneratorContext ctx = new GeneratorContext(List.of(), types, config);
+
+        String body = new ZodTypeWriter().generate(ctx).get(0).getBody();
+
+        assertThat(body).contains("url: z.string().regex(/^https?:\\/\\/\\S+$/)");
+        // already-escaped slash is left alone; a slash after an escaped backslash still needs one
+        assertThat(body).contains("path: z.string().regex(/^a\\/b\\/c\\\\\\/d$/)");
+    }
+
+    @Test
     void mapsArrayAndMapTypes() {
         ObjectType obj = new ObjectType("Container", "common", List.of());
         obj.setFields(List.of(
