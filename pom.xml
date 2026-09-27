@@ -167,6 +167,9 @@
                         <extensions>true</extensions>
                         <configuration>
                             <publishingServerId>central</publishingServerId>
+                            <!-- The tag-triggered CI job is the release gate; a staged deployment
+                                 that still needs a click in the Central portal was one step too many. -->
+                            <autoPublish>true</autoPublish>
                         </configuration>
                     </plugin>
                 </plugins>
