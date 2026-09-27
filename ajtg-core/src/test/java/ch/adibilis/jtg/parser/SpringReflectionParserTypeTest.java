@@ -296,6 +296,17 @@ class SpringReflectionParserTypeTest {
         assertThat(fieldOf(NullMarkedDto.class, "optional").required()).isFalse();
     }
 
+    // A constraint scoped to validation groups outside Default is not enforced by a plain @Valid;
+    // the generated type and validations must not claim it.
+    @Test
+    void presenceConstraintOutsideDefaultGroupDoesNotMakeFieldRequired() {
+        assertThat(fieldOf(GroupedPresenceDto.class, "createOnly").required()).isFalse();
+        assertThat(fieldOf(GroupedPresenceDto.class, "createOnly").validations()).isEmpty();
+        assertThat(fieldOf(GroupedPresenceDto.class, "withDefault").required()).isTrue();
+        assertThat(fieldOf(GroupedPresenceDto.class, "inheritsDefault").required()).isTrue();
+        assertThat(fieldOf(GroupedPresenceDto.class, "plain").required()).isTrue();
+    }
+
     private Field fieldOf(Class<?> dto, String name) {
         ObjectType obj = (ObjectType) parser.resolveType(dto);
         return obj.getFields().stream().filter(f -> f.name().equals(name)).findFirst().orElseThrow();

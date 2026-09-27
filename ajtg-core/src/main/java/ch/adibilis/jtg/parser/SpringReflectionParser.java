@@ -12,6 +12,8 @@ import ch.adibilis.jtg.pagination.PageSizeParam;
 import ch.adibilis.jtg.pagination.PagedQuery;
 import ch.adibilis.jtg.validation.Validation;
 
+import jakarta.validation.groups.Default;
+
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
@@ -368,6 +370,7 @@ public class SpringReflectionParser {
         List<Validation> validations = new ArrayList<>();
 
         for (Annotation ann : field.getAnnotations()) {
+            if (!appliesByDefault(ann)) continue;
             try {
                 switch (ann.annotationType().getSimpleName()) {
                     case "Min" -> {
@@ -421,6 +424,18 @@ public class SpringReflectionParser {
             }
         }
         return validations;
+    }
+
+    // A plain @Valid runs only Default-group constraints; one scoped to other groups is enforced
+    // solely where a caller opts into them, so the generated contract leaves it out.
+    private static boolean appliesByDefault(Annotation ann) {
+        try {
+            Object groups = ann.annotationType().getMethod("groups").invoke(ann);
+            if (!(groups instanceof Class<?>[] classes) || classes.length == 0) return true;
+            return Arrays.stream(classes).anyMatch(Default.class::isAssignableFrom);
+        } catch (ReflectiveOperationException e) {
+            return true;
+        }
     }
 
     // --- Union parsing ---
