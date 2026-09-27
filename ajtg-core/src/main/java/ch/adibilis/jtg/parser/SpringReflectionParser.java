@@ -16,9 +16,9 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
-import com.fasterxml.jackson.databind.PropertyNamingStrategy;
-import com.fasterxml.jackson.databind.annotation.JsonNaming;
+import tools.jackson.databind.PropertyNamingStrategies;
+import tools.jackson.databind.PropertyNamingStrategy;
+import tools.jackson.databind.annotation.JsonNaming;
 
 import org.springframework.web.bind.annotation.*;
 
@@ -34,6 +34,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.stream.Stream;
 
 public class SpringReflectionParser {
 
@@ -330,7 +331,8 @@ public class SpringReflectionParser {
             if (jsonProp != null && !jsonProp.value().isEmpty()) {
                 fieldName = jsonProp.value();
             } else if (namingStrategy instanceof PropertyNamingStrategies.NamingBase nb) {
-                fieldName = nb.translate(fieldName);
+                // translate() is protected since Jackson 3; NamingBase.nameForField ignores config and field.
+                fieldName = nb.nameForField(null, null, fieldName);
             }
 
             // Field type (with type variable substitution)
@@ -340,21 +342,26 @@ public class SpringReflectionParser {
             }
             Type resolvedType = resolveType(fieldType);
 
-            // Nullable detection
-            boolean required = true;
-            for (Annotation ann : javaField.getAnnotations()) {
-                String annName = ann.annotationType().getSimpleName();
-                if (annName.equals("Nullable")) {
-                    required = false;
-                    break;
-                }
-            }
-
-            // Validation constraints
             List<Validation> validations = extractValidations(javaField);
+            boolean required = hasPresenceConstraint(validations) || !hasNullableAnnotation(javaField);
 
             fields.add(new Field(fieldName, resolvedType, required, validations));
         }
+    }
+
+    private static boolean hasPresenceConstraint(List<Validation> validations) {
+        return validations.stream().anyMatch(v -> v instanceof Validation.NotNull
+                || v instanceof Validation.NotBlank
+                || v instanceof Validation.NotEmpty);
+    }
+
+    // JSpecify's @Nullable is a type-use annotation and only shows up on the annotated type;
+    // Spring's, JetBrains' and JSR-305's are declaration annotations. Only the outermost type
+    // counts: List<@Nullable String> says the elements may be null, not the list.
+    private static boolean hasNullableAnnotation(java.lang.reflect.Field field) {
+        return Stream.concat(Arrays.stream(field.getAnnotations()),
+                        Arrays.stream(field.getAnnotatedType().getAnnotations()))
+                .anyMatch(a -> a.annotationType().getSimpleName().equals("Nullable"));
     }
 
     private List<Validation> extractValidations(java.lang.reflect.Field field) {

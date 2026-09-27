@@ -80,4 +80,23 @@ class IntegrationTest {
             });
         }
     }
+
+    @Test
+    void presenceConstraintsAndTypeUseNullableFlowIntoGeneratedTypes() {
+        GeneratorConfig config = new GeneratorConfig(
+                List.of("ch.adibilis.jtg.parser.fixtures"),
+                List.of(outputDir.toString()), false, "", null, Map.of(), List.of(), 0
+        );
+        SpringReflectionParser parser = new SpringReflectionParser(config);
+        parser.resolveType(PresenceBeatsNullableDto.class);
+
+        String body = new TypeScriptTypeWriter().generateTypes(parser.getNamedTypes(), config).stream()
+                .filter(f -> f.getRelativePath().endsWith("PresenceBeatsNullableDto.ts"))
+                .findFirst().orElseThrow().getBody();
+
+        assertThat(body).contains("jspecifyNotNull: string;");
+        assertThat(body).contains("springNotBlank: string;");
+        assertThat(body).contains("jspecifyNotEmpty: string[];");
+        assertThat(body).contains("plainOptional?: string;");
+    }
 }

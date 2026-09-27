@@ -6,7 +6,7 @@
     <parent>
         <groupId>ch.adibilis.jtg</groupId>
         <artifactId>ajtg-parent</artifactId>
-        <version>1.0.15</version>
+        <version>1.0.16</version>
     </parent>
     <artifactId>ajtg-core</artifactId>
 
@@ -19,8 +19,14 @@
             <artifactId>spring-web</artifactId>
         </dependency>
         <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
+            <groupId>tools.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <!-- Explicit rather than transitive via spring-core: the parser tests annotate fixtures with
+             JSpecify's type-use @Nullable, and the parser's contract names it. -->
+        <dependency>
+            <groupId>org.jspecify</groupId>
+            <artifactId>jspecify</artifactId>
         </dependency>
         <dependency>
             <groupId>jakarta.validation</groupId>
