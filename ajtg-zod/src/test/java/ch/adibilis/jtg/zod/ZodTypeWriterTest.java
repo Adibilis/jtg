@@ -3,9 +3,11 @@ package ch.adibilis.jtg.zod;
 import ch.adibilis.jtg.config.GeneratorConfig;
 import ch.adibilis.jtg.model.endpoints.Endpoint;
 import ch.adibilis.jtg.model.types.*;
+import ch.adibilis.jtg.parser.SpringReflectionParser;
 import ch.adibilis.jtg.validation.Validation;
 import ch.adibilis.jtg.writer.GeneratorContext;
 import ch.adibilis.jtg.writer.TypeScriptFile;
+import ch.adibilis.jtg.zod.fixtures.PresenceRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -412,11 +414,27 @@ class ZodTypeWriterTest {
         assertThat(orderFile.getBody()).contains("import { LineRequestModel } from");
     }
 
-    // --- Regression: presence constraints must beat @Nullable.
-    // Field.required() is derived from @Nullable alone, but base DTOs carry
-    // `@NotBlank private @Nullable String firstname` — @Nullable is there for
-    // IDE null-analysis, @NotBlank is the contract. Emitting .optional() made the
-    // schema fail OPEN: parse({}) succeeded on a required field.
+    // --- Regression: presence constraints must beat the required flag, even on hand-built
+    // Fields. The parser folds @NotNull/@NotBlank/@NotEmpty into Field.required() since 1.0.16;
+    // the writer keeps its own guard because .optional() on a required field makes the schema
+    // fail OPEN: parse({}) succeeds.
+
+    @Test
+    void parsedNullabilityFlowsIntoOptionalChains() {
+        GeneratorConfig fixtureConfig = new GeneratorConfig(
+                List.of("ch.adibilis.jtg.zod.fixtures"), List.of("/out"), false, "", null, Map.of(), List.of(), 0
+        );
+        SpringReflectionParser parser = new SpringReflectionParser(fixtureConfig);
+        parser.resolveType(PresenceRequest.class);
+
+        TypeScriptFile file = new ZodTypeWriter()
+                .generate(new GeneratorContext(List.of(), parser.getNamedTypes(), fixtureConfig))
+                .stream().filter(f -> f.getRelativePath().endsWith("PresenceRequest.ts"))
+                .findFirst().orElseThrow();
+
+        assertThat(file.getBody()).contains("firstname: z.string().regex(/.+/),");
+        assertThat(file.getBody()).contains("nickname: z.string().optional().nullable(),");
+    }
 
     @Test
     void notBlankFieldIsNotOptionalEvenWhenNullableFlagsItNotRequired() {

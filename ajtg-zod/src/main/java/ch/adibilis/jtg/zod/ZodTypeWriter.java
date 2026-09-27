@@ -206,11 +206,10 @@ public class ZodTypeWriter implements Writer {
             sb.append(zodValidation(v));
         }
 
-        // A presence constraint beats the nullability flag. Field.required() is derived
-        // from @Nullable alone, but DTOs routinely carry `@NotBlank private @Nullable
-        // String x` — @Nullable is for IDE null-analysis, the constraint is the contract.
-        // Emitting .optional() there makes the schema fail OPEN: parse({}) would succeed
-        // on a required field, since .optional() short-circuits the whole chain.
+        // A presence constraint beats the nullability flag. The parser already folds
+        // @NotNull/@NotBlank/@NotEmpty into Field.required(); this guard covers Fields built
+        // elsewhere. Emitting .optional() on a required field makes the schema fail OPEN:
+        // parse({}) would succeed, since .optional() short-circuits the whole chain.
         if (!field.required() && !hasPresenceConstraint(field)) {
             sb.append(".optional().nullable()");
         }

@@ -172,6 +172,15 @@ export type UserResponse = z.infer<typeof UserResponseModel>;
 
 Supported annotations: `@Min`, `@Max`, `@Size`, `@NotBlank`, `@Pattern`, `@Email`, `@NotNull`, `@Nullable`.
 
+### Nullability
+
+A field is generated as optional (`name?: T`, `z.….optional().nullable()`) when it carries a
+`@Nullable` annotation, read from the declaration (Spring, JetBrains, JSR-305) or from the type
+(JSpecify's type-use `@Nullable`). Only the outermost type counts: `List<@Nullable String>` is a
+required list of nullable elements. `@NotNull`, `@NotBlank` and `@NotEmpty` make a field required
+even when it is also `@Nullable`, so the generated type says what Bean Validation enforces.
+`@NullMarked` is not interpreted; an unannotated field is always required.
+
 ## Writer Selection
 
 Include the writer modules as plugin dependencies to control what gets generated:
