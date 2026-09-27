@@ -44,8 +44,7 @@
     </modules>
 
     <properties>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
+        <maven.compiler.release>25</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
         <spring-web.version>7.0.9</spring-web.version>
@@ -111,8 +110,6 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.16.0</version>
                 <configuration>
-                    <source>21</source>
-                    <target>21</target>
                     <parameters>true</parameters>
                 </configuration>
             </plugin>

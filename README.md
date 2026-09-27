@@ -21,7 +21,7 @@ A Maven plugin that generates **TypeScript types**, **Angular services**, and **
 
 ## Requirements
 
-- Java 21+
+- Java 25+
 - Maven 3.9+
 - Spring Web on the compile classpath of the target project
 
