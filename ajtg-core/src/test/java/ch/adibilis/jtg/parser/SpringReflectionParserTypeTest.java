@@ -255,6 +255,52 @@ class SpringReflectionParserTypeTest {
         assertThat(optional.required()).isFalse();
     }
 
+    @Test
+    void jspecifyTypeUseNullableMakesFieldOptional() {
+        assertThat(fieldOf(JSpecifyNullableDto.class, "required").required()).isTrue();
+        assertThat(fieldOf(JSpecifyNullableDto.class, "optional").required()).isFalse();
+    }
+
+    @Test
+    void presenceConstraintMakesFieldRequiredDespiteJSpecifyNullable() {
+        assertThat(fieldOf(PresenceBeatsNullableDto.class, "jspecifyNotNull").required()).isTrue();
+        assertThat(fieldOf(PresenceBeatsNullableDto.class, "jspecifyNotEmpty").required()).isTrue();
+        assertThat(fieldOf(PresenceBeatsNullableDto.class, "plainOptional").required()).isFalse();
+    }
+
+    // Behaviour change in 1.0.16: request DTOs that mark every field @Nullable and add @NotBlank
+    // where a value is required used to generate `field?: T`; they now generate `field: T`.
+    @Test
+    void springNullableWithNotBlankFlipsToRequired() {
+        assertThat(fieldOf(PresenceBeatsNullableDto.class, "springNotBlank").required()).isTrue();
+    }
+
+    @Test
+    void nullableTypeArgumentDoesNotMakeFieldOptional() {
+        assertThat(fieldOf(NullableElementsDto.class, "requiredListOfNullable").required()).isTrue();
+        assertThat(fieldOf(NullableElementsDto.class, "optionalList").required()).isFalse();
+    }
+
+    @Test
+    void recordComponentsFollowTheSameNullabilityRules() {
+        assertThat(fieldOf(NullableRecord.class, "required").required()).isTrue();
+        assertThat(fieldOf(NullableRecord.class, "jspecifyOptional").required()).isFalse();
+        assertThat(fieldOf(NullableRecord.class, "springOptional").required()).isFalse();
+        assertThat(fieldOf(NullableRecord.class, "constrained").required()).isTrue();
+    }
+
+    // @NullMarked is not interpreted: an unannotated field is required with or without it.
+    @Test
+    void nullMarkedDoesNotChangeUnannotatedFields() {
+        assertThat(fieldOf(NullMarkedDto.class, "required").required()).isTrue();
+        assertThat(fieldOf(NullMarkedDto.class, "optional").required()).isFalse();
+    }
+
+    private Field fieldOf(Class<?> dto, String name) {
+        ObjectType obj = (ObjectType) parser.resolveType(dto);
+        return obj.getFields().stream().filter(f -> f.name().equals(name)).findFirst().orElseThrow();
+    }
+
     // --- JsonIgnore and static ---
 
     @Test
