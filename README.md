@@ -180,6 +180,8 @@ A field is generated as optional (`name?: T`, `z.….optional().nullable()`) whe
 required list of nullable elements. `@NotNull`, `@NotBlank` and `@NotEmpty` make a field required
 even when it is also `@Nullable`, so the generated type says what Bean Validation enforces.
 `@NullMarked` is not interpreted; an unannotated field is always required.
+Constraints scoped to validation groups that do not include `Default` are ignored for both
+requiredness and the Zod chain: the generated contract is what a plain `@Valid` enforces.
 
 ## Writer Selection
 
