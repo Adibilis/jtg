@@ -16,9 +16,9 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import com.fasterxml.jackson.databind.PropertyNamingStrategies;
-import com.fasterxml.jackson.databind.PropertyNamingStrategy;
-import com.fasterxml.jackson.databind.annotation.JsonNaming;
+import tools.jackson.databind.PropertyNamingStrategies;
+import tools.jackson.databind.PropertyNamingStrategy;
+import tools.jackson.databind.annotation.JsonNaming;
 
 import org.springframework.web.bind.annotation.*;
 
@@ -330,7 +330,8 @@ public class SpringReflectionParser {
             if (jsonProp != null && !jsonProp.value().isEmpty()) {
                 fieldName = jsonProp.value();
             } else if (namingStrategy instanceof PropertyNamingStrategies.NamingBase nb) {
-                fieldName = nb.translate(fieldName);
+                // translate() is protected since Jackson 3; NamingBase.nameForField ignores config and field.
+                fieldName = nb.nameForField(null, null, fieldName);
             }
 
             // Field type (with type variable substitution)
