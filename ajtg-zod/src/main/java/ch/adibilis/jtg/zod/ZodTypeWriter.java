@@ -288,11 +288,14 @@ public class ZodTypeWriter implements Writer {
             // as .max(2147483647) is noise that constrains nothing.
             case Validation.Size s -> ".min(" + s.min() + ")"
                     + (s.max() == Integer.MAX_VALUE ? "" : ".max(" + s.max() + ")");
-            case Validation.NotBlank n -> ".regex(/.+/)";
+            // @NotBlank needs one non-whitespace character; /.+/ let "   " through.
+            case Validation.NotBlank n -> ".regex(/\\S/)";
             // Presence only — the constraint is expressed by omitting .optional().
             case Validation.NotNull n -> "";
             case Validation.NotEmpty n -> ".min(1)";
-            case Validation.Pattern p -> ".regex(/" + escapeSlashes(p.regexp()) + "/)";
+            // @Pattern matches the whole value, a JS regex any substring: anchor it, grouped so an
+            // alternation ("de|fr") is anchored as a whole.
+            case Validation.Pattern p -> ".regex(/^(?:" + escapeSlashes(p.regexp()) + ")$/)";
             case Validation.Email e -> ".email(" + messageArg(e.message()) + ")";
         };
     }

@@ -57,7 +57,7 @@ class ZodTypeWriterTest {
                 .findFirst().orElseThrow();
 
         assertThat(file.getBody()).contains("export const UserFormModel = z.object({");
-        assertThat(file.getBody()).contains("name: z.string().min(1).max(100).regex(/.+/)");
+        assertThat(file.getBody()).contains("name: z.string().min(1).max(100).regex(/\\S/)");
         assertThat(file.getBody()).contains("age: z.number().int().min(0, { message: \"must be positive\" }).max(150)");
         assertThat(file.getBody()).contains("email: z.string().email({ message: \"invalid email\" })");
         assertThat(file.getBody()).contains("export type UserForm = z.infer<typeof UserFormModel>;");
@@ -85,7 +85,7 @@ class ZodTypeWriterTest {
                 .filter(f -> f.getRelativePath().contains("InvoiceForm"))
                 .findFirst().orElseThrow();
 
-        assertThat(file.getBody()).contains("dueDate: z.string().regex(/.+/)");
+        assertThat(file.getBody()).contains("dueDate: z.string().regex(/\\S/)");
     }
 
     @Test
@@ -166,7 +166,30 @@ class ZodTypeWriterTest {
         ZodTypeWriter writer = new ZodTypeWriter();
         List<TypeScriptFile> files = writer.generate(ctx);
 
-        assertThat(files.get(0).getBody()).contains("code: z.string().regex(/^[A-Z]{2}\\d{4}$/)");
+        assertThat(files.get(0).getBody()).contains("code: z.string().regex(/^(?:^[A-Z]{2}\\d{4}$)$/)");
+    }
+
+    // Java's @Pattern matches the whole value, a JS regex any substring: "xde" must not pass "de|fr".
+    @Test
+    void anchorsPatternToTheWholeValue() {
+        ObjectType obj = new ObjectType("LangForm", "common", List.of());
+        obj.setFields(List.of(
+                new Field("lang", PrimitiveType.String, true, List.of(
+                        new Validation.Pattern("de|fr|it|en", "")
+                )),
+                new Field("link", PrimitiveType.String, true, List.of(
+                        new Validation.Pattern("^$|^https?://\\S+$", "")
+                ))
+        ));
+
+        Map<String, Type> types = new LinkedHashMap<>();
+        types.put("LangForm", obj);
+        GeneratorContext ctx = new GeneratorContext(List.of(), types, config);
+
+        String body = new ZodTypeWriter().generate(ctx).get(0).getBody();
+
+        assertThat(body).contains("lang: z.string().regex(/^(?:de|fr|it|en)$/)");
+        assertThat(body).contains("link: z.string().regex(/^(?:^$|^https?:\\/\\/\\S+$)$/)");
     }
 
     @Test
@@ -187,9 +210,9 @@ class ZodTypeWriterTest {
 
         String body = new ZodTypeWriter().generate(ctx).get(0).getBody();
 
-        assertThat(body).contains("url: z.string().regex(/^https?:\\/\\/\\S+$/)");
+        assertThat(body).contains("url: z.string().regex(/^(?:^https?:\\/\\/\\S+$)$/)");
         // already-escaped slash is left alone; a slash after an escaped backslash still needs one
-        assertThat(body).contains("path: z.string().regex(/^a\\/b\\/c\\\\\\/d$/)");
+        assertThat(body).contains("path: z.string().regex(/^(?:^a\\/b\\/c\\\\\\/d$)$/)");
     }
 
     @Test
@@ -432,7 +455,7 @@ class ZodTypeWriterTest {
                 .stream().filter(f -> f.getRelativePath().endsWith("PresenceRequest.ts"))
                 .findFirst().orElseThrow();
 
-        assertThat(file.getBody()).contains("firstname: z.string().regex(/.+/),");
+        assertThat(file.getBody()).contains("firstname: z.string().regex(/\\S/),");
         assertThat(file.getBody()).contains("nickname: z.string().optional().nullable(),");
     }
 
@@ -450,8 +473,8 @@ class ZodTypeWriterTest {
                 .stream().filter(f -> f.getRelativePath().endsWith("ContactRequest.ts"))
                 .findFirst().orElseThrow();
 
-        assertThat(file.getBody()).contains("firstname: z.string().regex(/.+/),");
-        assertThat(file.getBody()).doesNotContain("firstname: z.string().regex(/.+/).optional()");
+        assertThat(file.getBody()).contains("firstname: z.string().regex(/\\S/),");
+        assertThat(file.getBody()).doesNotContain("firstname: z.string().regex(/\\S/).optional()");
     }
 
     @Test
